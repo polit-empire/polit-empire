@@ -230,7 +230,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
         VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
     };
     use windows_sys::Win32::System::Threading::{
-        CreateRemoteThread, OpenProcess, WaitForSingleObject, INFINITE,
+        CreateRemoteThread, OpenProcess, WaitForSingleObject,
         PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION,
         PROCESS_VM_READ, PROCESS_VM_WRITE,
     };
@@ -238,6 +238,17 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
     let dll_path = anticheat_dll_path();
     if !dll_path.exists() {
         return Err("Модуль защиты не загружен".to_string());
+    }
+    // Защита от подмены (TOCTOU): между записью DLL и её загрузкой файл могли
+    // подменить. Прямо перед инжектом сверяем содержимое на диске с эталонными
+    // вшитыми байтами и при расхождении восстанавливаем оригинал.
+    match std::fs::read(&dll_path) {
+        Ok(on_disk) if on_disk.as_slice() == EMBEDDED_DLL => {}
+        _ => {
+            std::fs::write(&dll_path, EMBEDDED_DLL)
+                .map_err(|e| format!("Не удалось восстановить модуль защиты: {e}"))?;
+            set_hidden(&dll_path);
+        }
     }
 
     // UTF-16 путь к DLL с завершающим нулём — аргумент для LoadLibraryW.
@@ -325,7 +336,11 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
             CloseHandle(proc);
             return Err("Не удалось создать поток защиты в процессе игры".into());
         }
-        WaitForSingleObject(thread, INFINITE);
+        // Ждём завершения LoadLibraryW, но с таймаутом: INFINITE рисковал
+        // навсегда повесить монитор при deadlock на loader lock процесса игры.
+        // LoadLibraryW штатно отрабатывает за миллисекунды; 15с — большой запас.
+        const WAIT_TIMEOUT_MS: u32 = 15_000;
+        WaitForSingleObject(thread, WAIT_TIMEOUT_MS);
         CloseHandle(thread);
         CloseHandle(proc);
     }

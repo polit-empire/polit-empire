@@ -180,18 +180,26 @@ pub async fn verify_session() -> Result<VerifyResponse, String> {
     let body: serde_json::Value = res.json().await.unwrap_or_default();
 
     if !status.is_success() {
-        // Ошибка сервера (5xx) — не считаем сессию невалидной
-        if status.is_server_error() {
-            return Ok(VerifyResponse {
-                valid: saved_nick.is_some(),
-                nickname: saved_nick,
-                banned: false,
-            });
+        // Разлогиниваем ТОЛЬКО при явном отказе авторизации: 401/403 с
+        // нормальным JSON-ответом GML. Всё остальное (404/405/429, редиректы
+        // и HTML-заглушка анти-DDoS «/wait», 5xx) — проблемы сервера или
+        // защиты хостинга, а НЕ сессии: работаем по сохранённой сессии и
+        // не выкидываем игрока на экран входа.
+        let code = status.as_u16();
+        if (code == 401 || code == 403) && body.is_object() {
+            let message = body["message"].as_str().unwrap_or("");
+            let banned = message.to_lowercase().contains("заблокирован");
+            return Ok(VerifyResponse { valid: false, nickname: None, banned });
         }
-        // Явный отказ (401/400): токен истёк или аккаунт забанен
-        let message = body["message"].as_str().unwrap_or("");
-        let banned = message.to_lowercase().contains("заблокирован");
-        return Ok(VerifyResponse { valid: false, nickname: None, banned });
+        crate::telemetry::report_launcher_log(
+            "warn",
+            &format!("checkToken: HTTP {code} — сессию сохраняем, не разлогиниваем"),
+        );
+        return Ok(VerifyResponse {
+            valid: saved_nick.is_some(),
+            nickname: saved_nick,
+            banned: false,
+        });
     }
 
     let data = &body["data"];

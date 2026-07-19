@@ -55,7 +55,7 @@ fn send_activity(client: &mut DiscordIpcClient, mode: PresenceMode, started_at: 
     };
 
     let site_label = crate::obf_str!("Открыть сайт");
-    let site_url = crate::obf_str!("https://politempire.org");
+    let site_url = crate::obf_str!("https://politempire.ru");
     let discord_label = crate::obf_str!("Наш Discord");
     let discord_url = crate::obf_str!("https://discord.gg/dqDx9qsQd9");
 

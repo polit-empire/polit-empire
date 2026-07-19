@@ -104,15 +104,38 @@ async fn fetch_gml_profile(
 
             match res {
                 Ok(r) if r.status().is_success() => {
-                    body = Some(
-                        r.json()
-                            .await
-                            .map_err(|e| format!("Некорректный ответ сервера: {e}"))?,
-                    );
-                    // Хост рабочий — фиксируем его для остальных вызовов сессии.
-                    crate::config::set_resolved_gml_host(host);
-                    crate::telemetry::report_launcher_log("info", &format!("profiles/info: успех через {host}"));
-                    break 'hosts;
+                    // Тело читаем устойчиво: обрыв тела или не-JSON (обрезка
+                    // DPI, HTML-заглушка анти-DDoS /wait) — транзиентная
+                    // ошибка, а не причина валить запуск: повторяем.
+                    match r.text().await {
+                        Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                            Ok(v) => {
+                                body = Some(v);
+                                // Хост рабочий — фиксируем его для остальных вызовов сессии.
+                                crate::config::set_resolved_gml_host(host);
+                                crate::telemetry::report_launcher_log("info", &format!("profiles/info: успех через {host}"));
+                                break 'hosts;
+                            }
+                            Err(e) => {
+                                let snippet: String = raw.chars().take(200).collect();
+                                last_err = format!("Некорректный ответ сервера: {e}");
+                                crate::telemetry::report_launcher_log(
+                                    "warn",
+                                    &format!("profiles/info @ {host}: ответ не JSON ({e}); начало: {snippet} (попытка {attempt}/{ATTEMPTS_PER_HOST})"),
+                                );
+                            }
+                        },
+                        Err(e) => {
+                            last_err = format!("Некорректный ответ сервера: {e}");
+                            crate::telemetry::report_launcher_log(
+                                "warn",
+                                &format!("profiles/info @ {host}: тело ответа оборвалось — {e} (попытка {attempt}/{ATTEMPTS_PER_HOST})"),
+                            );
+                        }
+                    }
+                    if attempt < ATTEMPTS_PER_HOST {
+                        tokio::time::sleep(std::time::Duration::from_secs(attempt as u64)).await;
+                    }
                 }
                 Ok(r) => {
                     let status = r.status();
@@ -129,7 +152,14 @@ async fn fetch_gml_profile(
                         &format!("profiles/info @ {host}: HTTP {code} (попытка {attempt}/{ATTEMPTS_PER_HOST})"),
                     );
                     // Транзиентные коды повторяем на том же хосте; иначе сразу к следующему.
-                    let transient = code == 403 || code == 429 || status.is_server_error();
+                    // 403/429/5xx — транзиентные. 404/405 в нашей схеме почти
+                    // всегда означают заглушку анти-DDoS хостинга (/wait) —
+                    // тоже повторяем, затем уходим на резервный хост.
+                    let transient = code == 403
+                        || code == 404
+                        || code == 405
+                        || code == 429
+                        || status.is_server_error();
                     if !transient {
                         continue 'hosts;
                     }
@@ -190,7 +220,7 @@ async fn fetch_gml_profile(
     let managed_dirs: Vec<String> = mods_dirs.into_iter().collect();
 
     // Опциональные моды (файлы *-optional-mod*): оставля��м только выбранные
-    // пользователем. Невыбранные исключа��тся из манифеста — их не качаем,
+    // пользователем. Невыбранные исключа��тся из манифеста — их не ��ачаем,
     // а очистка mods/ удали�� их с диска, если они были включены раньше.
     let enabled = &load_settings().enabled_optional_mods;
     let files: Vec<ManifestFile> = files
@@ -333,7 +363,7 @@ pub async fn get_optional_mods() -> Result<Vec<OptionalMod>, String> {
         })
         .collect();
 
-    // Названия и описания из панели GML (через сайт). Ошибки не критичны.
+    // Названия и описания из пане��и GML (через сайт). Ошибки не критичны.
     if let Ok(res) = client
         .get(format!("{}/api/launcher/optional-mods", crate::config::api_base()))
         .header("User-Agent", launcher_user_agent())
@@ -402,70 +432,156 @@ async fn download_file(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Качаем через хосты-кандидаты (сначала подтверждённый профилем). Если
-    // соединение с хостом рвётся, пробуем следующий — тот же файл доступен на
-    // обоих доменах (общий бэкенд).
+    // До пяти попыток на файл: качаем во временный файл, сверяем SHA-1 с
+    // манифестом и только после совпадения ставим на место. Битое скачивание
+    // (обрыв соединения, HTML-заглушка анти-DDoS вместо файла) больше не
+    // остаётся на диске и не валит финальную сверку целостности.
+    const FILE_ATTEMPTS: u32 = 5;
     let hosts = crate::config::gml_host_candidates();
-    let mut res_opt = None;
-    let mut last_err = String::new();
-    for host in &hosts {
-        match client
-            .get(format!("{host}/api/v1/file/{}", entry.hash))
-            .header("User-Agent", launcher_user_agent())
-            .header("Authorization", token)
-            .send()
-            .await
-        {
-            Ok(r) => match r.error_for_status() {
-                Ok(ok) => {
-                    crate::config::set_resolved_gml_host(host);
-                    res_opt = Some(ok);
-                    break;
-                }
-                Err(e) => {
-                    last_err = format!("Файл {} недоступен: {e}", entry.path);
-                    // HTTP-ошибка одинакова на всех хостах — не перебираем дальше.
-                    break;
-                }
-            },
-            Err(e) => {
-                // Соединение не удалось — пробуем следующий хост.
-                last_err = format!("Ошибка сети при скачивании {}: {e}", entry.path);
-            }
-        }
-    }
-    let res = res_opt.ok_or(last_err)?;
+    let mut last_err = format!("Не удалось скачать файл {}", entry.path);
 
-    let file = fs::File::create(&target).map_err(|e| e.to_string())?;
-    let mut writer = std::io::BufWriter::with_capacity(256 * 1024, file);
-    let mut stream = res.bytes_stream();
-    let mut last_tick = std::time::Instant::now();
-
-    while let Some(chunk) = stream.next().await {
+    for attempt in 1..=FILE_ATTEMPTS {
         if CANCELLED.load(Ordering::SeqCst) {
             return Err("Загрузка отменена".into());
         }
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        std::io::Write::write_all(&mut writer, &chunk).map_err(|e| e.to_string())?;
-        bytes_done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
 
-        // Прогресс обновляем не чаще ~7 раз/сек, чтобы не душить mutex
-        if last_tick.elapsed().as_millis() >= 150 {
-            set_progress(SyncProgress {
-                stage: "downloading".into(),
-                current_file: entry.path.clone(),
-                files_done: files_done.load(Ordering::Relaxed),
-                files_total,
-                bytes_done: bytes_done.load(Ordering::Relaxed),
-                bytes_total,
-                error: None,
-            });
-            last_tick = std::time::Instant::now();
+        // Запрос: перебираем хосты-кандидаты (сначала подтверждённый профилем).
+        let mut res_opt = None;
+        for host in &hosts {
+            match client
+                .get(format!("{host}/api/v1/file/{}", entry.hash))
+                .header("User-Agent", launcher_user_agent())
+                .header("Authorization", token)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let status = r.status();
+                    let final_url = r.url().to_string();
+                    // Анти-DDoS хостинга перехватывает запрос и уводит на
+                    // страницу-заглушку /wait (после редиректа — 404/405 или
+                    // HTML вместо файла). Это не проблема самого файла:
+                    // пробуем другой хост, потом ждём и повторяем.
+                    let is_wait_stub = final_url.contains("/wait")
+                        || r.headers()
+                            .get("content-type")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.contains("text/html"))
+                            .unwrap_or(false);
+                    if status.is_success() && !is_wait_stub {
+                        crate::config::set_resolved_gml_host(host);
+                        res_opt = Some(r);
+                        break;
+                    }
+                    if is_wait_stub {
+                        last_err = format!(
+                            "Файл {}: защита хостинга отдала заглушку /wait (HTTP {})",
+                            entry.path,
+                            status.as_u16()
+                        );
+                        // Заглушка — особенность конкретного хоста: пробуем
+                        // следующий (резервный), потом повторяем с паузой.
+                        continue;
+                    }
+                    last_err = format!("Файл {} недоступен: HTTP {}", entry.path, status.as_u16());
+                    // Настоящая HTTP-ошибка одинакова на всех хостах — дальше не перебираем.
+                    break;
+                }
+                Err(e) => {
+                    // Соединение не удалось — пробуем следующий хост.
+                    last_err = format!("Ошибка сети при скачивании {}: {e}", entry.path);
+                }
+            }
+        }
+        let Some(res) = res_opt else {
+            if attempt < FILE_ATTEMPTS {
+                // Пауза растёт с каждой попыткой — пережидаем анти-DDoS.
+                tokio::time::sleep(std::time::Duration::from_secs((attempt * 2) as u64)).await;
+                continue;
+            }
+            return Err(last_err);
+        };
+
+        // Качаем во временный файл рядом с целевым.
+        let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
+        tmp_name.push(".pe-tmp");
+        let tmp = target.with_file_name(tmp_name);
+
+        let mut written: u64 = 0;
+        let stream_result: Result<(), String> = async {
+            let file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
+            let mut writer = std::io::BufWriter::with_capacity(256 * 1024, file);
+            let mut stream = res.bytes_stream();
+            let mut last_tick = std::time::Instant::now();
+
+            while let Some(chunk) = stream.next().await {
+                if CANCELLED.load(Ordering::SeqCst) {
+                    return Err("Загрузка отменена".into());
+                }
+                let chunk = chunk.map_err(|e| e.to_string())?;
+                std::io::Write::write_all(&mut writer, &chunk).map_err(|e| e.to_string())?;
+                written += chunk.len() as u64;
+                bytes_done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+
+                // Прогресс обновляем не чаще ~7 раз/сек, чтобы не душить mutex
+                if last_tick.elapsed().as_millis() >= 150 {
+                    set_progress(SyncProgress {
+                        stage: "downloading".into(),
+                        current_file: entry.path.clone(),
+                        files_done: files_done.load(Ordering::Relaxed),
+                        files_total,
+                        bytes_done: bytes_done.load(Ordering::Relaxed),
+                        bytes_total,
+                        error: None,
+                    });
+                    last_tick = std::time::Instant::now();
+                }
+            }
+            std::io::Write::flush(&mut writer).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        .await;
+
+        match stream_result {
+            // Скачалось — сверяем SHA-1 с манифестом ДО того, как ставить на место.
+            Ok(()) => match crate::integrity::hash_file(&tmp) {
+                Ok(h) if h.eq_ignore_ascii_case(&entry.hash) => {
+                    fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                    files_done.fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
+                }
+                Ok(h) => {
+                    last_err = format!(
+                        "Файл {} скачался повреждённым (SHA-1 {h}, ожидался {}).",
+                        entry.path, entry.hash
+                    );
+                }
+                Err(e) => {
+                    last_err = format!("Не удалось проверить файл {}: {e}", entry.path);
+                }
+            },
+            Err(e) => {
+                if CANCELLED.load(Ordering::SeqCst) {
+                    let _ = fs::remove_file(&tmp);
+                    return Err("Загрузка отменена".into());
+                }
+                last_err = format!("Ошибка сети при скачивании {}: {e}", entry.path);
+            }
+        }
+
+        // Неудачная попытка: убираем временный файл и откатываем прогресс.
+        let _ = fs::remove_file(&tmp);
+        bytes_done.fetch_sub(written, Ordering::Relaxed);
+        crate::telemetry::report_launcher_log(
+            "warn",
+            &format!("{last_err} (попытка {attempt}/{FILE_ATTEMPTS})"),
+        );
+        if attempt < FILE_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_secs((attempt * 2) as u64)).await;
         }
     }
-    std::io::Write::flush(&mut writer).map_err(|e| e.to_string())?;
-    files_done.fetch_add(1, Ordering::Relaxed);
-    Ok(())
+
+    Err(last_err)
 }
 
 /// Основная команда: скачать/проверить сборку через GML и запустить игру.
@@ -517,6 +633,9 @@ async fn sync_and_launch_inner() -> Result<(), String> {
     // Пул keep-alive соединений — бе�� него каждый файл открывает новое
     // TCP+TLS соединение, что и делало загрузку медленной.
     let client = reqwest::Client::builder()
+        // Таймаут на установку соединения: зависший коннект не блокирует
+        // запуск навсегда. Общий таймаут не ставим — клиент качает большие файлы.
+        .connect_timeout(std::time::Duration::from_secs(15))
         .pool_max_idle_per_host(16)
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .build()
@@ -535,7 +654,9 @@ async fn sync_and_launch_inner() -> Result<(), String> {
     // 3. Скачиваем недостающие/повреждённые файлы из GML по хешу.
     // Параллельно (DOWNLOAD_CONCURRENCY соединений) — сотни мелких модов
     // качаются в разы быстрее, чем по одному.
-    const DOWNLOAD_CONCURRENCY: usize = 8;
+    // 4 соединения вместо 8: сотни мелких файлов подряд провоцируют
+    // анти-DDoS хостинга (заглушку /wait), качаем аккуратнее.
+    const DOWNLOAD_CONCURRENCY: usize = 4;
     let files_total = to_download.len();
     let files_done = Arc::new(AtomicUsize::new(0));
     let bytes_done = Arc::new(AtomicU64::new(0));
@@ -592,8 +713,34 @@ async fn sync_and_launch_inner() -> Result<(), String> {
         return Err(msg);
     }
 
-    // 6. Финальная сверка целостности прямо перед запуском (защита от подмены файлов)
-    final_integrity_check(&game_dir, manifest)?;
+    // 6. Финальная сверка целостности прямо перед запуском (защита от подмены
+    // файлов). Если файлы не сошлись (обычно битое скачивание), не заставляем
+    // игрока вручную перезапускать синхронизацию — автоматически перекачиваем
+    // битые файлы и сверяем ещё раз.
+    if let Err(first_err) = final_integrity_check(&game_dir, manifest) {
+        let broken = diff_manifest(&game_dir, manifest);
+        crate::telemetry::report_launcher_log(
+            "warn",
+            &format!(
+                "Финальная сверка: {} файл(ов) не сошлось, перекачиваю автоматически: {}",
+                broken.len(),
+                broken.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        );
+        let retry_files_total = broken.len();
+        let retry_bytes_total: u64 = broken.iter().map(|f| f.size).sum();
+        let retry_files_done = Arc::new(AtomicUsize::new(0));
+        let retry_bytes_done = Arc::new(AtomicU64::new(0));
+        for entry in &broken {
+            download_file(
+                &client, &token, &game_dir, entry, &retry_files_done, &retry_bytes_done,
+                retry_files_total, retry_bytes_total,
+            )
+            .await?;
+        }
+        // Если не сошлось и после перекачивания — прежняя ошибка.
+        final_integrity_check(&game_dir, manifest).map_err(|_| first_err)?;
+    }
 
     // 7. Запускаем игру аргументами, которые сформировал GML
     launch_game(&game_dir, &settings.java_path, &profile)?;
@@ -663,7 +810,7 @@ fn ensure_authlib_jar(game_dir: &Path) -> Option<PathBuf> {
     Some(dst)
 }
 
-/// Принудительно подставляет прямой authlib-эндпоинт в аргумент запуска.
+/// Принудительно подставл��ет прямой authlib-эндпоинт в аргумент запуска.
 ///
 /// Работает и с плейсхолдером `{authEndpoint}` (уже заменён выше), и со
 /// случаем, когда GML «запёк» полный URL панели. Для аргумента вида
@@ -741,6 +888,19 @@ fn launch_game(game_dir: &Path, java_path_override: &str, profile: &GmlProfile) 
         }
     }
 
+    // Харденинг JVM: запрещаем динамическое подключение агентов в рантайме
+    // (self-attach через com.sun.tools.attach) — иначе чит грузит -javaagent уже
+    // ПОСЛЕ старта, в обход validate_launch_args. Статический authlib-injector
+    // (-javaagent при запуске) при этом продолжает работать.
+    for flag in [
+        "-XX:+DisableAttachMechanism",
+        "-Djdk.attach.allowAttachSelf=false",
+    ] {
+        if !args.iter().any(|a| a.eq_ignore_ascii_case(flag)) {
+            args.insert(0, flag.to_string());
+        }
+    }
+
     // Запрещаем посторонние javaagent и подключение отладчика к игре
     validate_launch_args(&args, game_dir)?;
 
@@ -789,6 +949,18 @@ fn launch_game(game_dir: &Path, java_path_override: &str, profile: &GmlProfile) 
         .args(&args)
         .current_dir(game_dir)
         .env(crate::obf_str!("PE_AC_REPORT"), &ac_report);
+    // Вычищаем переменные окружения, через которые JVM молча подхватывает
+    // посторонние -javaagent/JVM-опции (JAVA_TOOL_OPTIONS, _JAVA_OPTIONS и т.п.).
+    // Это обход validate_launch_args: их выставляет читер, а не лаунчер, поэтому
+    // удаляем у дочернего процесса игры до установки наших AC-переменных.
+    for var in [
+        "_JAVA_OPTIONS",
+        "JAVA_TOOL_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "JAVA_OPTIONS",
+    ] {
+        command.env_remove(var);
+    }
     for (key, value) in &ac_env {
         command.env(key, value);
     }
@@ -826,6 +998,11 @@ fn launch_game(game_dir: &Path, java_path_override: &str, profile: &GmlProfile) 
     // с «В лаунчере» на «Играет на сервере» и запускаем таймер сессии.
     crate::discord_rpc::set_playing();
 
+    // Засекаем начало игровой сессии для подсчёта наигранного времени.
+    // Финализация (учёт длительности) произойдёт при завершении игры —
+    // см. is_game_running()/kill_game().
+    crate::stats::begin_session();
+
     // Запускаем античит: инжектим DLL в процесс игры и мониторим нар��шения.
     crate::inject::start_monitor(game_pid);
 
@@ -847,6 +1024,7 @@ pub fn is_game_running() -> bool {
         match child.try_wait() {
             Ok(Some(_)) => {
                 *guard = None; // процесс завершился
+                crate::stats::finish_session();
                 crate::discord_rpc::set_launcher();
                 false
             }
@@ -855,6 +1033,7 @@ pub fn is_game_running() -> bool {
                 // Если состояние процесса прочитать не удалось, больше не
                 // считаем игру запущенной и возвращаем presence лаунчера.
                 *guard = None;
+                crate::stats::finish_session();
                 crate::discord_rpc::set_launcher();
                 false
             }
@@ -872,12 +1051,14 @@ pub fn kill_game() -> Result<bool, String> {
         // Уже завершилась сама?
         if let Ok(Some(_)) = child.try_wait() {
             *guard = None;
+            crate::stats::finish_session();
             crate::discord_rpc::set_launcher();
             return Ok(false);
         }
         child.kill().map_err(|e| format!("Не удалось закрыть игру: {e}"))?;
         let _ = child.wait();
         *guard = None;
+        crate::stats::finish_session();
         crate::discord_rpc::set_launcher();
         return Ok(true);
     }

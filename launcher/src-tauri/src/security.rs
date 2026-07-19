@@ -125,9 +125,9 @@ pub fn validate_launch_args(args: &[String], game_dir: &Path) -> Result<(), Stri
                     return Err("Обнаружен посторонний -javaagent в аргументах запуска.".into());
                 }
             }
-            if lower.contains("-agentlib:jdwp")
+            if lower.starts_with("-agentlib:")
+                || lower.starts_with("-agentpath:")
                 || lower.contains("xrunjdwp")
-                || lower.contains("-agentpath:")
             {
                 return Err("Запуск с отладчиком/agent запрещён.".into());
             }

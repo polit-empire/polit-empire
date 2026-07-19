@@ -12,6 +12,7 @@ mod news;
 mod obf;
 mod security;
 mod skins;
+mod stats;
 mod telemetry;
 mod update;
 
@@ -41,6 +42,11 @@ fn main() {
             // Фоновый heartbeat: сообщает сайту, что лаунчер запущен, и статус
             // (idle/playing). Работает после авторизации, ошибки игнорируются.
             telemetry::spawn_heartbeat();
+
+            // Выбор хоста сайта: сначала прямой politempire.ru, при неудаче —
+            // резервный politempire.org (Cloudflare). Результат запоминается на
+            // сессию и используется всеми запросами через api_base().
+            tauri::async_runtime::spawn(config::resolve_api_host());
 
             // Discord Rich Presence. Если Discord закрыт или IPC недоступен,
             // ошибка полностью игнорируется и не влияет на работу лаунчера.
@@ -104,6 +110,7 @@ fn main() {
             skins::upload_skin,
             skins::delete_skin,
             skins::get_skin_url,
+            stats::get_playtime_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Polit Empire Launcher");

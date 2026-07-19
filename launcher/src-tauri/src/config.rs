@@ -9,7 +9,61 @@ use std::path::PathBuf;
 /// Значение шифруется на этапе компиляции макросом `obf_str!` (см. `obf.rs`) и
 /// расшифровывается в рантайме.
 pub fn api_base() -> String {
+    // Сначала прямой домен .ru (минуя Cloudflare): .org у части игроков
+    // блокируется вместе с Cloudflare (HTTP 405/обрывы). Если проверка при
+    // старте (resolve_api_host) выяснила, что .ru недоступен — все запросы
+    // автоматически идут через резервный .org.
+    if let Some(h) = RESOLVED_API_HOST.lock().unwrap().clone() {
+        return h;
+    }
+    api_direct_base()
+}
+
+/// Прямой домен сайта (82.117.87.152, минуя Cloudflare).
+fn api_direct_base() -> String {
+    crate::obf_str!("https://politempire.ru")
+}
+
+/// Резервный домен сайта (через Cloudflare) — только если .ru не отвечает.
+fn api_fallback_base() -> String {
     crate::obf_str!("https://politempire.org")
+}
+
+/// Хост сайта, выбранный проверкой при старте лаунчера.
+static RESOLVED_API_HOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Выбирает рабочий хост сайта: сначала прямой .ru, при неудаче — резервный
+/// .org. Результат запоминается на всю сессию и используется всеми запросами
+/// через api_base() (телеметрия, hwid, античит, новости, обновления, скины).
+/// Проверка — лёгкий GET /api/news; ответ считается рабочим, только если это
+/// успешный НЕ-HTML ответ и нас не увели на заглушку анти-DDoS (/wait).
+pub async fn resolve_api_host() {
+    let client = reqwest::Client::new();
+    for host in [api_direct_base(), api_fallback_base()] {
+        let ok = match client
+            .get(format!("{host}/api/news"))
+            .timeout(std::time::Duration::from_secs(8))
+            .send()
+            .await
+        {
+            Ok(r) => {
+                let is_html = r
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.contains("text/html"))
+                    .unwrap_or(false);
+                r.status().is_success()
+                    && !is_html
+                    && !r.url().to_string().contains("/wait")
+            }
+            Err(_) => false,
+        };
+        if ok {
+            *RESOLVED_API_HOST.lock().unwrap() = Some(host);
+            return;
+        }
+    }
 }
 
 /// Базовый адрес GML (Gml.Web.Api: вход, проверка токена, профиль сборки).

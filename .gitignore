@@ -1,0 +1,12 @@
+# Игнорируем кэш pnpm и node_modules
+.pnpm-store/
+node_modules/
+
+# Игнорируем временные сборки Java и JDK/JRE рантаймы
+**/temp/JavaBuild/
+**/java-runtime-delta/
+**/jre-legacy/
+
+# Если моды (.jar) тоже не нужно хранить в репозитории (обычно их собирают отдельно), расскомментируй:
+.jar
+.next/

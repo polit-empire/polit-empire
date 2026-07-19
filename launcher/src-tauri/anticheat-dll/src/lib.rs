@@ -532,6 +532,33 @@ mod imp {
         }
     }
 
+    /// SHA-256 файла с кэшем по (size, mtime): пересчёт только при изменении
+    /// файла. Хэширование крупных модулей (jvm.dll и т.п.) на КАЖДОЙ итерации
+    /// цикла (раз в 5с) заметно грузило CPU/диск — кэш это устраняет.
+    fn sha256_file_cached(path_raw: &str) -> String {
+        static CACHE: OnceLock<Mutex<HashMap<String, (u64, u64, String)>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let meta = std::fs::metadata(path_raw).ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let mtime = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if let Some((c_size, c_mtime, c_hash)) = cache.lock().unwrap().get(path_raw) {
+            if *c_size == size && *c_mtime == mtime {
+                return c_hash.clone();
+            }
+        }
+        let hash = sha256_file(path_raw);
+        cache
+            .lock()
+            .unwrap()
+            .insert(path_raw.to_string(), (size, mtime, hash.clone()));
+        hash
+    }
+
     // ==================== Доверие к модулям (ужесточённое) ==================
 
     /// Контекст проверки доверия: каталоги + кэш проверок подписи (WinVerifyTrust
@@ -644,9 +671,21 @@ mod imp {
             // Модуль без пути на диске — крайне подозрительно (manual map).
             return ModuleVerdict::Injected;
         }
-        // 1. Каталог сборки/JRE — доверяем по расположению (наши файлы).
+        // 1. Каталог сборки/JRE. Раньше доверяли ВСЕМУ по расположению, но этот
+        //    каталог пишется самим пользователем: читер мог положить свой .dll в
+        //    папку с "minecraft"/"gml" в пути и стать «доверенным». Теперь доверяем
+        //    только нативам движка (по имени) ИЛИ модулям с валидной Authenticode-
+        //    подписью (jvm.dll и пр. подписаны). Неизвестный неподписанный модуль
+        //    здесь — на ревью (signed_unknown), не severe: не банит ложно, но и не
+        //    выдаёт слепой кредит доверия.
         if ctx.in_client_dir(&m.path_lc) {
-            return ModuleVerdict::Trusted;
+            if is_exact_native(&m.name_lc)
+                || looks_like_native(&m.name_lc)
+                || ctx.is_signed_cached(&m.path_raw, &m.path_lc)
+            {
+                return ModuleVerdict::Trusted;
+            }
+            return ModuleVerdict::SignedUnknown;
         }
         // 2. Каталог Windows (%windir%: System32, SysWOW64, WinSxS …) — доверяем
         //    по расположению. Он защищён ОС (запись только админ/TrustedInstaller),
@@ -1012,6 +1051,15 @@ mod imp {
         // чтобы heartbeat пошёл сразу и лаунчер знал, что DLL жива.
         connect_pipe();
 
+        // Heartbeat шлём из ОТДЕЛЬНОГО лёгкого потока по фиксированному таймеру,
+        // независимо от тяжёлого скан-цикла ниже. Иначе долгая итерация
+        // (хэширование модулей, GC-пауза JVM) задерживала бы «пульс», и лаунчер
+        // ложно считал бы DLL выгруженной (heartbeat_lost → несправедливый кик).
+        std::thread::spawn(|| loop {
+            report("heartbeat", "alive");
+            std::thread::sleep(Duration::from_secs(5));
+        });
+
         // Даём JVM прогрузить свои библиотеки, чтобы не считать их «новыми».
         std::thread::sleep(Duration::from_secs(10));
 
@@ -1038,7 +1086,7 @@ mod imp {
         }
         let mut baseline: HashMap<String, BaseEntry> = HashMap::new();
         for m in enumerate_modules() {
-            let hash = sha256_file(&m.path_raw);
+            let hash = sha256_file_cached(&m.path_raw);
             baseline.insert(m.name_lc.clone(), BaseEntry { path_lc: m.path_lc, hash });
         }
         report("anticheat_started", "in-process baseline captured (name/path/hash)");
@@ -1048,9 +1096,9 @@ mod imp {
         let mut debugger_reported = false;
 
         loop {
-            // 0. Heartbeat — раз в итерацию (каждые 5с). Пропажа heartbeat на
-            //    стороне лаунчера трактуется как выгрузка/заморозка DLL.
-            report("heartbeat", "alive");
+            // 0. Heartbeat теперь шлёт отдельный поток (см. выше) по стабильному
+            //    таймеру — здесь его больше не дублируем, чтобы «пульс» не зависел
+            //    от длительности тяжёлой итерации скана.
 
             // 1. Отладчик, подключённый к игре.
             unsafe {
@@ -1084,16 +1132,19 @@ mod imp {
                 // (тот же name, другой путь/хэш) считаем инъекцией.
                 let mut baseline_tampered = false;
                 if let Some(base) = baseline.get(&m.name_lc) {
+                    let mut cur_hash = String::new();
                     if base.path_lc != m.path_lc {
                         baseline_tampered = true;
                     } else if !base.hash.is_empty() {
-                        let cur = sha256_file(&m.path_raw);
-                        if !cur.is_empty() && cur != base.hash {
+                        cur_hash = sha256_file_cached(&m.path_raw);
+                        if !cur_hash.is_empty() && cur_hash != base.hash {
                             baseline_tampered = true;
                         }
                     }
                     if baseline_tampered && reported.insert(format!("tamper:{}", m.name_lc)) {
-                        let cur_hash = sha256_file(&m.path_raw);
+                        if cur_hash.is_empty() {
+                            cur_hash = sha256_file_cached(&m.path_raw);
+                        }
                         report(
                             "module_tampered",
                             &format!(
@@ -1112,7 +1163,7 @@ mod imp {
                     ModuleVerdict::Trusted => {}
                     ModuleVerdict::Injected => {
                         if reported.insert(format!("inject:{}", m.name_lc)) {
-                            let hash = sha256_file(&m.path_raw);
+                            let hash = sha256_file_cached(&m.path_raw);
                             report(
                                 "injected_module",
                                 &format!("{} :: {} :: sha256={hash}", m.name_lc, m.path_lc),

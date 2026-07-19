@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+launcher
+.v0
+*.tar.gz
+.env
+.env.local
+npm-debug.log*
+Dockerfile
+docker-compose.yml
+README.md
