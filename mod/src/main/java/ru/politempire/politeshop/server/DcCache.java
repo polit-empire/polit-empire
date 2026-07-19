@@ -57,12 +57,21 @@ public final class DcCache {
         return obj;
     }
 
+    /**
+     * Выставляет игроку score в scoreboard-цели "donatecoin".
+     * Публичный — вызывается из NetworkHandler при получении баланса от клиента.
+     */
+    public static void syncScoreboardFor(ServerPlayer sp, int balance) {
+        syncScoreboard(sp, balance);
+    }
+
     private static void syncScoreboard(ServerPlayer sp, int balance) {
         MinecraftServer server = sp.getServer();
         if (server == null) return;
         Objective obj = ensureObjective(server);
         ScoreAccess score = server.getScoreboard().getOrCreatePlayerScore(sp, obj);
-        score.set(balance);
+        // balance = -1 (не загружен) → показываем 0, а не пустоту/"..."
+        score.set(Math.max(0, balance));
     }
 
     private static void refresh(ServerPlayer sp) {
@@ -80,6 +89,9 @@ public final class DcCache {
     @SubscribeEvent
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer sp) {
+            // Сразу выставляем 0, чтобы скорборд не показывал пустоту/"..."
+            // до того, как придёт реальный баланс от клиента.
+            syncScoreboard(sp, 0);
             refresh(sp);
         }
     }
