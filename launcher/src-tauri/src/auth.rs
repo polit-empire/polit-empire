@@ -191,6 +191,26 @@ pub async fn verify_session() -> Result<VerifyResponse, String> {
             let banned = message.to_lowercase().contains("заблокирован");
             return Ok(VerifyResponse { valid: false, nickname: None, banned });
         }
+        // Gml.Web.Api checkToken при невалидном/отозванном accessToken отдаёт
+        // HTTP 400 (а НЕ 401) с телом {"statusCode":401,"message":"Неверный
+        // логин или пароль"}. По HTTP-коду это выглядит как «серверная ошибка»,
+        // но реально это именно отказ авторизации: токен отозван (например,
+        // после смены SECURITY_KEY/перевыдачи сессии). Если оставить игрока
+        // с таким токеном, он зайдёт в игру, но мод получит 401 от сайта
+        // («требуется вход через лаунчер»). Поэтому трактуем 400 с
+        // statusCode=401/403 в теле как явный отказ — заставляем перевойти.
+        if code == 400 && body.is_object() {
+            let inner_code = body["statusCode"].as_i64().unwrap_or(0);
+            let message = body["message"].as_str().unwrap_or("");
+            if inner_code == 401 || inner_code == 403
+                || message.contains("Неверный логин или пароль")
+                || message.contains("не валиден")
+                || message.to_lowercase().contains("access")
+            {
+                let banned = message.to_lowercase().contains("заблокирован");
+                return Ok(VerifyResponse { valid: false, nickname: None, banned });
+            }
+        }
         crate::telemetry::report_launcher_log(
             "warn",
             &format!("checkToken: HTTP {code} — сессию сохраняем, не разлогиниваем"),

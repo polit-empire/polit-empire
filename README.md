@@ -149,3 +149,33 @@ pnpm tauri build   # → src-tauri/target/release/bundle/nsis/*.exe
 | POST | `/api/telemetry` | телеметрия от лаунчера (Bearer) |
 
 Управление игроками (бан/разбан), сборками и мониторинг — в панели GML.
+
+## 7. Anti-DDoS (nginx + fail2ban)
+
+Сайт и панель GML защищены на уровне nginx + fail2ban + nftables. Подробности
+в [`deploy/anti-ddos/README.md`](deploy/anti-ddos/README.md). Установка на
+сервере одной командой:
+
+```bash
+sudo bash deploy/anti-ddos/install.sh
+```
+
+Что делает:
+- **nginx**: real_ip от Cloudflare (видно настоящий IP клиента), per-location
+  rate-limit (общий 15r/s, `/api/` 5r/s, authlib 30r/s), `limit_conn` 20/IP,
+  блок `POST /` на корне (основная атака), блок bad UA (`sqlmap`, `nikto`,
+  `acunetix`, `nmap`, `masscan`, `zgrab`, `Go-http-client`, `python-requests`)
+  и scanner-путей (`/wp-admin`, `/.env`, `/xmlrpc.php`, `/.git` и т.п.),
+  защита от slowloris, отключение логирования 429 (было 9 GB/день → 120 MB/день).
+- **fail2ban** (5 jail'ов): `nginx-limit-req` (по error.log), `nginx-post-root`
+  (по `POST /` в access.log), `nginx-botsearch`, `nginx-forbidden`, `sshd`.
+  Бан через nftables, время растёт в 2× при рецидивах (до 24 ч).
+- **logrotate**: ротация по размеру 500M + hourly cron — логи больше не
+  забивают диск при атаке.
+
+Мониторинг:
+```bash
+sudo fail2ban-client status                 # список jail'ов
+sudo fail2ban-client status nginx-limit-req # статистика банов
+sudo fail2ban-client set nginx-limit-req unbanip <IP>   # разбанить
+```

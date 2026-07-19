@@ -80,32 +80,21 @@ public class ShopScreen extends Screen {
 
         if (loading) return;
 
-        // Кнопки покупки на карточках.
+        // Кнопка «Оплатить» только для пакетов DC — они оплачиваются на сайте,
+        // экран описания им не нужен. Остальные товары открываются по клику
+        // на карточку (см. mouseClicked) — там своя кнопка «Купить».
         int start = page * PER_PAGE;
         int btnW = 108;
         for (int i = 0; i < PER_PAGE; i++) {
             int idx = start + i;
             if (idx >= products.size()) break;
             ShopProduct p = products.get(idx);
+            if (!p.isDcPackage()) continue;
             int y = cardsTop() + i * (CARD_H + CARD_GAP);
             int bx = cardX() + cardW() - btnW - 6;
             int by = y + (CARD_H - 20) / 2;
-
-            if (p.buyableInGame) {
-                boolean can = ClientState.balance() < 0 || ClientState.balance() >= p.priceDc;
-                StyledButton buy = StyledButton.primary(bx, by, btnW, 20,
-                        Component.literal("Купить · " + p.priceDc + " DC"), () -> buy(p));
-                buy.active = can;
-                addRenderableWidget(buy);
-            } else if (p.isDcPackage()) {
-                addRenderableWidget(StyledButton.gold(bx, by, btnW, 20,
-                        Component.literal("Оплатить · " + p.priceMoney + "₽"), () -> buy(p)));
-            } else {
-                StyledButton site = StyledButton.neutral(bx, by, btnW, 20,
-                        Component.literal("Только на сайте"), () -> {});
-                site.active = false;
-                addRenderableWidget(site);
-            }
+            addRenderableWidget(StyledButton.gold(bx, by, btnW, 20,
+                    Component.literal("Оплатить · " + p.priceMoney + "₽"), () -> buy(p)));
         }
 
         // Пагинация.
@@ -200,12 +189,17 @@ public class ShopScreen extends Screen {
     private void renderCards(GuiGraphics gfx, int mouseX, int mouseY) {
         int start = page * PER_PAGE;
         int btnW = 108;
-        int textMaxRight = cardX() + cardW() - btnW - 14;
         for (int i = 0; i < PER_PAGE; i++) {
             int idx = start + i;
             if (idx >= products.size()) break;
             ShopProduct p = products.get(idx);
             int y = cardsTop() + i * (CARD_H + CARD_GAP);
+
+            // У DC-пакетов справа кнопка «Оплатить» — оставляем под неё место.
+            // У остальных текст занимает всю ширину карточки.
+            int textMaxRight = p.isDcPackage()
+                    ? cardX() + cardW() - btnW - 14
+                    : cardX() + cardW() - 14;
 
             boolean hover = mouseX >= cardX() && mouseX <= cardX() + cardW() && mouseY >= y && mouseY <= y + CARD_H;
             gfx.fill(cardX(), y, cardX() + cardW(), y + CARD_H, hover ? 0xFF212838 : 0xFF1B212C);
@@ -218,11 +212,20 @@ public class ShopScreen extends Screen {
             int textX = cardX() + 34;
             String name = trim(p.name, textMaxRight - textX);
             gfx.drawString(this.font, name, textX, y + 8, 0xFFFFFFFF, false);
-            String sub = p.description != null && !p.description.isBlank()
-                    ? p.description
-                    : (p.kind.equals("privilege") ? ("Привилегия · " + p.durationDays + " дн.") : "Предмет");
+
+            // Подзаголовок: для DC — состав пакета, для остальных — подсказка
+            // о клике (карточка открывает экран описания с кнопкой покупки).
+            String sub;
+            int subColor;
+            if (p.isDcPackage()) {
+                sub = "Пакет DC · +" + p.dcAmount + " DC";
+                subColor = 0xFFFFD54A;
+            } else {
+                sub = "Нажмите для подробностей";
+                subColor = 0xFF9AA4B2;
+            }
             sub = trim(sub, textMaxRight - textX);
-            gfx.drawString(this.font, sub, textX, y + 22, 0xFF9AA4B2, false);
+            gfx.drawString(this.font, sub, textX, y + 22, subColor, false);
         }
 
         gfx.drawCenteredString(this.font, (page + 1) + " / " + totalPages(),
@@ -236,6 +239,32 @@ public class ShopScreen extends Screen {
             s = s.substring(0, s.length() - 1);
         }
         return s + "…";
+    }
+
+    /**
+     * Клик по карточке товара (кроме DC — у тех своя кнопка «Оплатить»)
+     * открывает экран подробного описания с кнопкой «Купить».
+     */
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Сначала даём виджетам (навигация, «Оплатить» у DC) обработать клик.
+        if (super.mouseClicked(mouseX, mouseY, button)) return true;
+        if (button != 0 || loading || products.isEmpty()) return false;
+
+        int start = page * PER_PAGE;
+        for (int i = 0; i < PER_PAGE; i++) {
+            int idx = start + i;
+            if (idx >= products.size()) break;
+            ShopProduct p = products.get(idx);
+            if (p.isDcPackage()) continue; // у DC — кнопка «Оплатить», не открываем описание
+            int y = cardsTop() + i * (CARD_H + CARD_GAP);
+            if (mouseX >= cardX() && mouseX <= cardX() + cardW()
+                    && mouseY >= y && mouseY <= y + CARD_H) {
+                this.minecraft.setScreen(new ProductDetailScreen(this, p));
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

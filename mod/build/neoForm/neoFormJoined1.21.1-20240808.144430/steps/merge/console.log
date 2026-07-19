@@ -1,8 +1,8 @@
 JVM Args:          
-Run Args:          "--client", "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripClient/outputs.jar", "--server", "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripServer/outputs.jar", "--ann", "1.21.1", "--output", "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/outputs.jar", "--inject", "false"
-JVM:               /vercel/share/tools/amazon-corretto-21.0.11.10.1-linux-x64/bin/java
-Classpath:         /home/vercel-sandbox/.gradle/caches/modules-2/files-2.1/net.neoforged/mergetool/2.0.3/85c096b0155715275f84922d41462484c9a0285c/mergetool-2.0.3-fatjar.jar
-Working Dir:       /vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge
+Run Args:          "--client", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripClient/outputs.jar", "--server", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripServer/outputs.jar", "--ann", "1.21.1", "--output", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/outputs.jar", "--inject", "false"
+JVM:               /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+Classpath:         /root/.gradle/caches/modules-2/files-2.1/net.neoforged/mergetool/2.0.3/85c096b0155715275f84922d41462484c9a0285c/mergetool-2.0.3-fatjar.jar
+Working Dir:       /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge
 Main Class:        net.neoforged.mergetool.ConsoleMerger
-Program log file:  /vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/log.log
-Output file:       /vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/outputs.jar
+Program log file:  /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/log.log
+Output file:       /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/outputs.jar

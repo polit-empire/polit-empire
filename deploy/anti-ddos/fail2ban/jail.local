@@ -1,0 +1,130 @@
+# ============================================================================
+# fail2ban — anti-DDoS jails для Polit Empire
+# ============================================================================
+# Установка:
+#   sudo cp deploy/anti-ddos/fail2ban/jail.local /etc/fail2ban/jail.local
+#   sudo cp deploy/anti-ddos/fail2ban/nginx-429-flood.conf \
+#     /etc/fail2ban/filter.d/nginx-429-flood.conf
+#   sudo cp deploy/anti-ddos/fail2ban/nginx-post-root.conf \
+#     /etc/fail2ban/filter.d/nginx-post-root.conf
+#   sudo systemctl enable --now fail2ban
+#   sudo systemctl restart fail2ban
+#   sudo fail2ban-client status
+# ============================================================================
+
+[DEFAULT]
+
+# Бан: 1 час при первом срабатывании, рекурсивно растёт до суток.
+# fail2ban по умолчанию использует nftables (см. /etc/fail2ban/jail.d/defaults-debian.conf).
+bantime  = 1h
+bantime.increment = true
+bantime.maxtime   = 24h
+bantime.factor    = 2
+
+# Окно наблюдения и порог срабатывания.
+findtime = 10m
+maxretry = 10
+
+# Бэкенд: парсим файлы логов nginx (не systemd-журнал).
+backend  = auto
+usedns   = no
+
+# Куда слать отчёты (необязательно — раскомментируйте и подставьте адрес).
+# destemail = admin@politempire.org
+# mta = sendmail
+# action = %(action_mwl)s
+
+# Игнорируем локалхост и петлю.
+# 82.117.87.152 — этот же сервер (localhost-трафик).
+# 79.137.71.8   — Minecraft-сервер: плагин PoliteShopMod делает десятки
+#                POST /api/mod/admin/dc в секунду, что превышает rate-limit.
+#                Без whitelist fail2ban банит IP сервера → игроки получают
+#                "серверы аутентификации недоступны".
+# Чтобы добавить ещё IP Minecraft-сервера/прокси — допишите сюда и в
+# nginx/conf.d/00-antiddos.conf (geo $is_trusted_ip).
+ignoreip = 127.0.0.1/8 ::1 82.117.87.152 79.137.71.8
+
+# ----------------------------------------------------------------------------
+# SSH — защита перебора паролей (на всякий случай, сервер в интернете).
+# ----------------------------------------------------------------------------
+[sshd]
+enabled  = true
+port     = ssh
+filter   = sshd
+backend  = systemd
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+
+# ----------------------------------------------------------------------------
+# nginx-limit-req — срабатывает на встроенный лимит nginx (limit_req).
+# Фильтр /etc/fail2ban/filter.d/nginx-limit-req.conf читает error.log:
+#   "limiting requests, excess: 30.650 by zone "perip", client: <IP>, ..."
+# Это ОСНОВНОЙ механизм против DDoS: каждый attacker IP получает десятки 429
+# в секунду → fail2ban банит его на уровне nftables → пакеты больше не доходят
+# до nginx вообще.
+# ----------------------------------------------------------------------------
+[nginx-limit-req]
+enabled  = true
+port     = http,https
+filter   = nginx-limit-req
+logpath  = /var/log/nginx/error.log
+maxretry = 8
+findtime = 5m
+bantime  = 2h
+
+# ----------------------------------------------------------------------------
+# nginx-429-flood — отключён.
+# После включения anti-DDoS-конфига nginx 429-ответы НЕ пишутся в access.log
+# (см. map $loggable в 00-antiddos.conf — это экономит десятки ГБ диска за
+# день атаки). Баны идут через jail nginx-limit-req, который читает error.log,
+# где 429-срабатывания пишутся на уровне warn. Этот jail оставлен для справки,
+# чтобы включить, если решите снова логировать 429 в access.log.
+# ----------------------------------------------------------------------------
+[nginx-429-flood]
+enabled  = false
+port     = http,https
+filter   = nginx-429-flood
+logpath  = /var/log/nginx/access.log
+maxretry = 30
+findtime = 1m
+bantime  = 2h
+
+# ----------------------------------------------------------------------------
+# nginx-post-root — ловит атаку "POST /" на корень сайта.
+# Главную страницу никогда не запрашивают POST — это 100% бот/сканер/DDoS.
+# Баним быстро и жёстко: 3 POST / за минуту = бан на 6 часов.
+# ----------------------------------------------------------------------------
+[nginx-post-root]
+enabled  = true
+port     = http,https
+filter   = nginx-post-root
+logpath  = /var/log/nginx/access.log
+maxretry = 3
+findtime = 1m
+bantime  = 6h
+
+# ----------------------------------------------------------------------------
+# nginx-botsearch — ловит сканирование путей типа /phpmyadmin, /wp-admin,
+# /.env, /xmlrpc.php и т.п. Встроенный фильтр fail2ban.
+# ----------------------------------------------------------------------------
+[nginx-botsearch]
+enabled  = true
+port     = http,https
+filter   = nginx-botsearch
+logpath  = /var/log/nginx/access.log
+maxretry = 3
+findtime = 10m
+bantime  = 1d
+
+# ----------------------------------------------------------------------------
+# nginx-forbidden — ловит 403 (доступ запрещён). Часто = сканер.
+# ----------------------------------------------------------------------------
+[nginx-forbidden]
+enabled  = true
+port     = http,https
+filter   = nginx-forbidden
+logpath  = /var/log/nginx/access.log
+maxretry = 5
+findtime = 10m
+bantime  = 1h

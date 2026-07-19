@@ -10,3 +10,5 @@ node_modules/
 # Если моды (.jar) тоже не нужно хранить в репозитории (обычно их собирают отдельно), расскомментируй:
 .jar
 .next/
+data/GmlBackend/data.db
+data/GmlDatabase/

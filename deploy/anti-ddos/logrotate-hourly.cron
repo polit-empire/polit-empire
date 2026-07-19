@@ -1,0 +1,12 @@
+# Polit Empire — ежечасная проверка размера логов nginx.
+# Стандартный cron.daily запускает logrotate раз в сутки — этого мало при
+# DDoS (логи растут по 9 GB/день). Этот скрипт крутит логи по размеру каждый
+# час, используя наш /etc/logrotate.d/nginx-politempire.
+#
+# Установка:
+#   sudo cp deploy/anti-ddos/logrotate-hourly.cron /etc/cron.hourly/logrotate-nginx-size
+#   sudo chmod +x /etc/cron.hourly/logrotate-nginx-size
+
+#!/bin/sh
+# Только наш конфиг — не трогаем остальной logrotate.
+/usr/sbin/logrotate /etc/logrotate.d/nginx-politempire

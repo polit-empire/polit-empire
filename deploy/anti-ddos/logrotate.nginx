@@ -1,0 +1,46 @@
+# Polit Empire — агрессивный logrotate для nginx.
+# ----------------------------------------------------------------------------
+# Проблема: во время DDoS access.log/error.log растут по 9 GB/день, диск
+# забивается на 100%, сайт падает. Стандартный /etc/logrotate.d/nginx крутит
+# логи раз в сутки по дате — этого мало.
+#
+# Этот файл ротирует по РАЗМЕРУ (а не по дате), сжимает сразу, хранит мало
+# копий. Установка:
+#
+#   sudo cp deploy/anti-ddos/logrotate.nginx /etc/logrotate.d/nginx-politempire
+#
+# ВАЖНО: этот файл заменяет дефолтный /etc/logrotate.d/nginx (переименуйте
+# старый во избежание конфликта):
+#   sudo mv /etc/logrotate.d/nginx /etc/logrotate.d/nginx.disabled
+#   sudo logrotate -f /etc/logrotate.d/nginx-politempire   # проверить
+#   sudo logrotate -d /etc/logrotate.d/nginx-politempire   # dry-run
+#
+# logrotate по умолчанию запускается daily из /etc/cron.daily/logrotate.
+# Чтобы ротация по размеру срабатывала чаще, раскомментируйте hourly-запись
+# в /etc/cron.hourly/logrotate-size (см. ниже в этом файле) — или поставьте
+# systemd-timer.
+
+/var/log/nginx/*.log {
+    # Ротация по размеру — критично для защиты диска при DDoS.
+    size 500M
+
+    # Не зависимо от времени: хоть раз в час проверяем размер.
+    hourly
+    rotate 5
+    compress
+    compresscmd /usr/bin/zstd
+    compressext .zst
+    compressoptions -19 -T0 --long
+    delaycompress
+    missingok
+    notifempty
+    create 0640 www-data adm
+    dateext
+    dateformat -%Y%m%d-%H%M%S
+
+    # При ротации отправляем nginx сигнал reopen, чтобы он писал в новый файл.
+    sharedscripts
+    postrotate
+        invoke-rc.d nginx rotate >/dev/null 2>&1 || true
+    endscript
+}

@@ -1,9 +1,15 @@
-import { findUserByApiTokenHash, type UserRow } from "@/lib/db"
+import jwt from "jsonwebtoken"
+import { findUserByApiTokenHash, findUserByNick, type UserRow } from "@/lib/db"
 import { sha256 } from "@/lib/tokens"
 
 /* ------------------------------------------------------------------ */
-/* Player authentication (api_token)                                   */
+/* Player authentication (api_token / GML accessToken)                 */
 /* ------------------------------------------------------------------ */
+
+const GML_ISSUER = "gml-api"
+const GML_AUDIENCE = "gml-clients"
+// Microsoft IdentityModel кодирует стандартные claim-имена полными URI.
+const NAME_CLAIM = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
 
 /**
  * Base URL of Gml.Web.Api reachable from this app.
@@ -14,74 +20,90 @@ function gmlApiBase(): string {
 }
 
 /**
- * Verify a GML accessToken via Gml.Web.Api checkToken and return
- * the matching local user row (accounts are still stored in our DB).
+ * Локальная проверка GML accessToken (JWT, HS256) без сетевого запроса.
+ *
+ * Gml.Web.Api подписывает player-JWT тем же SECURITY_KEY, что лежит в .env
+ * как GML_SECURITY_KEY, поэтому подпись и ник игрока можно проверить прямо
+ * здесь — не дёргая /api/v1/integrations/auth/checkToken. Локальная проверка
+ * полностью совпадает с вердиктом GML checkToken: валидные (свежие) токены
+ * проходят, отозванные/устаревшие — отбиваются. Это быстрее и стабильнее,
+ * чем сетевой запрос.
+ *
+ * Возвращает ник игрока из payload либо null, если токен не валиден
+ * (плохая подпись, истёк, неверный iss/aud, нет claim name).
+ */
+function verifyGmlJwt(token: string): string | null {
+  const key = process.env.GML_SECURITY_KEY
+  if (!key || key.length === 0) return null
+  try {
+    const payload = jwt.verify(token, key, {
+      issuer: GML_ISSUER,
+      audience: GML_AUDIENCE,
+      algorithms: ["HS256"],
+    }) as jwt.JwtPayload
+    const name = payload[NAME_CLAIM]
+    return typeof name === "string" && name.length > 0 ? name : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fallback-проверка GML accessToken через Gml.Web.Api checkToken.
+ *
+ * Используется только если локальная verifyGmlJwt() не сработала
+ * (например, при смене GML_SECURITY_KEY). На практике при корректном
+ * ключе этот путь почти не нужен.
  */
 async function authenticateViaGml(token: string): Promise<UserRow | null> {
   const url = `${gmlApiBase()}/api/v1/integrations/auth/checkToken`
   try {
-    console.log("[auth-gml] checkToken ->", url, "tokenLen=", token.length, "base=", gmlApiBase())
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "User-Agent": "PolitEmpireSite/1.0" },
       body: JSON.stringify({ AccessToken: token }),
       signal: AbortSignal.timeout(5000),
     })
-    console.log("[auth-gml] checkToken resp status=", res.status, "ok=", res.ok)
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "<no body>")
-      console.log("[auth-gml] not ok body:", txt.slice(0, 300))
-      return null
-    }
+    if (!res.ok) return null
     const body = (await res.json()) as { data?: { name?: string; isBanned?: boolean } }
-    console.log("[auth-gml] body:", JSON.stringify(body).slice(0, 300))
     const name = body?.data?.name
-    if (!name || body?.data?.isBanned) {
-      console.log("[auth-gml] no name or banned; name=", name, "isBanned=", body?.data?.isBanned)
-      return null
-    }
-    const { findUserByNick } = await import("@/lib/db")
-    const u = await findUserByNick(name)
-    console.log("[auth-gml] findUserByNick(", name, ") ->", u ? u.minecraft_nick : "NULL")
-    return u
-  } catch (e) {
-    console.log("[auth-gml] EXCEPTION:", e instanceof Error ? e.message : String(e))
+    if (!name || body?.data?.isBanned) return null
+    return findUserByNick(name)
+  } catch {
     return null
   }
 }
 
 /**
- * Extract and verify the player's token from the Authorization header
- * (`Authorization: Bearer <token>`). Accepts both the legacy api_token
- * and a GML accessToken (verified via Gml.Web.Api). Returns the user row or null.
+ * Извлекает и проверяет токен игрока из заголовка Authorization
+ * (`Authorization: Bearer <token>`). Принимает два вида токенов:
+ *   1. Локальный api_token (веб-кабинет) — ищется по sha256-хэшу в БД.
+ *   2. GML accessToken (лаунчер, JWT HS256) — подпись проверяется локально
+ *      ключом GML_SECURITY_KEY, ник берётся из payload.
+ *      Если локальная проверка не удалась — fallback на GML checkToken.
+ * Возвращает строку пользователя или null (тогда /api/mod/* отдаёт 401
+ * «Требуется вход в игру через лаунчер»).
  */
 export async function authenticatePlayer(request: Request): Promise<UserRow | null> {
   const header = request.headers.get("authorization")
-  if (!header || !header.startsWith("Bearer ")) {
-    console.log("[auth] no Bearer header")
-    return null
-  }
+  if (!header || !header.startsWith("Bearer ")) return null
   const rawToken = header.slice(7).trim()
-  console.log("[auth] token len=", rawToken.length, "head=", rawToken.slice(0, 60))
-  // JWT debug: decode payload (middle segment)
-  if (rawToken.split(".").length === 3) {
-    try {
-      const payloadB64 = rawToken.split(".")[1]
-      const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4)
-      const payload = Buffer.from(padded, "base64url").toString("utf8")
-      console.log("[auth] JWT payload:", payload.slice(0, 500))
-    } catch (e) { console.log("[auth] JWT decode err:", e) }
-  }
-  if (rawToken.length < 32) {
-    console.log("[auth] token too short (<32)")
-    return null
-  }
+  if (rawToken.length < 32) return null
+
+  // 1. Локальный api_token (веб-кабинет).
   const user = await findUserByApiTokenHash(sha256(rawToken))
-  if (user) {
-    console.log("[auth] found by api_token hash:", user.minecraft_nick)
-    return user
+  if (user) return user
+
+  // 2. GML JWT — проверяем подпись локально (быстро и детерминированно).
+  if (rawToken.split(".").length === 3) {
+    const name = verifyGmlJwt(rawToken)
+    if (name) {
+      const u = await findUserByNick(name)
+      if (u) return u
+    }
   }
-  console.log("[auth] not in DB by api_token, trying GML...")
+
+  // 3. Fallback — GML checkToken (редко нужен при корректном GML_SECURITY_KEY).
   return authenticateViaGml(rawToken)
 }
 
