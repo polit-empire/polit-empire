@@ -1,0 +1,24 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "politeshop"
+version = "1.0.0"
+displayName = "PolitEmpire Donate"
+authors = "PolitEmpire"
+description = '''ÐÐ½ÑÑÑÐ¸Ð¸Ð³ÑÐ¾Ð²Ð¾Ðµ Ð´Ð¾Ð½Ð°Ñ-Ð¼ÐµÐ½Ñ, ÐºÐ¾ÑÐ·Ð¸Ð½Ð° Ð¸ Ð²Ð°Ð»ÑÑÐ° DC Ñ Ð¸Ð½ÑÐµÐ³ÑÐ°ÑÐ¸ÐµÐ¹ ÑÐ°Ð¹ÑÐ° PolitEmpire.'''
+
+[[dependencies.politeshop]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.0,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.politeshop]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.22)"
+ordering = "NONE"
+side = "BOTH"

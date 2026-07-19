@@ -1,0 +1,8 @@
+name: PoliteShopDC
+version: '${version}'
+main: ru.politempire.politeshopdc.PoliteShopPlugin
+api-version: '1.21'
+author: PolitEmpire
+description: Плейсхолдер %donatecoin% с балансом DC (данные с сайта).
+depend:
+  - PlaceholderAPI

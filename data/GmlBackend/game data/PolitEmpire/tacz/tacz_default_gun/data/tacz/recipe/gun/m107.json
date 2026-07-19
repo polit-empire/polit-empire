@@ -1,0 +1,42 @@
+{
+  "materials": [
+    {
+      "item": {
+        "tag": "c:ingots/iron"
+      },
+      "count": 128
+    },
+    {
+      "item": {
+        "tag": "c:ingots/gold"
+      },
+      "count": 32
+    },
+    {
+      "item": {
+        "tag": "c:gems/lapis"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:gems/amethyst"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:gems/diamond"
+      },
+      "count": 1
+    }
+  ],
+  "result": {
+    "type": "gun",
+    "id": "tacz:m107",
+    "attachments": {
+      "scope": "tacz:scope_contender"
+    }
+  },
+  "type": "tacz:gun_smith_table_crafting"
+}

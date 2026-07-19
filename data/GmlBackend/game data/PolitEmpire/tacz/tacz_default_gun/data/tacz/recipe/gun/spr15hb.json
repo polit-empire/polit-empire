@@ -1,0 +1,33 @@
+{
+  "materials": [
+    {
+      "item": {
+        "tag": "c:ingots/iron"
+      },
+      "count": 80
+    },
+    {
+      "item": {
+        "tag": "c:ingots/gold"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:dusts/redstone"
+      },
+      "count": 8
+    },
+    {
+      "item": {
+        "tag": "c:gems/diamond"
+      },
+      "count": 1
+    }
+  ],
+  "result": {
+    "type": "gun",
+    "id": "tacz:spr15hb"
+  },
+  "type": "tacz:gun_smith_table_crafting"
+}

@@ -1,0 +1,223 @@
+[general]
+	#Название валюты
+	currency_name = "Donate-Coins"
+	#Символ валюты
+	currency_symbol = "DC"
+	#Стартовый баланс для новых игроков (0 = без монет)
+	# Default: 0
+	# Range: > 0
+	starting_balance = 0
+
+[api]
+	#Включить HTTP API для приёма донат-платежей
+	api_enabled = true
+	#Порт HTTP API
+	# Default: 8080
+	# Range: 1024 ~ 65535
+	api_port = 8080
+	#IP-адрес, на котором слушает API.
+	#  127.0.0.1 — только локально (рекомендуется, если сайт на этой же машине)
+	#  0.0.0.0   — слушать на всех интерфейсах (открыто наружу)
+	api_bind_host = "0.0.0.0"
+	#Секретный ключ API. Обязательно замените на свой!
+	api_secret_key = "CHANGE_ME"
+
+[shop]
+	#Список предметов в магазине.
+	#
+	#Формат:
+	#  "<item_id>
+	#   price=<цена>
+	#   count=<кол-во>
+	#   name=<название>"
+	#
+	#Необязательные параметры:
+	#  repeat=true/false  - повторная покупка (по умолчанию: true)
+	#  nbt={...}          - SNBT компоненты предмета
+	#
+	#При ошибке — строка пропускается, конфиг НЕ сбрасывается.
+	#
+	#Примеры:
+	#  "minecraft:diamond
+	#   price=50  count=1  name=Алмаз"
+	#
+	#  "minecraft:elytra
+	#   price=500  count=1  name=Элитры
+	#   repeat=false"
+	#
+	#  "minecraft:diamond_sword
+	#   price=300  count=1  name=Острый меч
+	#   nbt={components:{"minecraft:enchantments":{levels:{"minecraft:sharpness":5}}}}"
+	shop_items = ["""
+minecraft:diamond
+   price=50  count=1  name=Алмаз""", """
+minecraft:netherite_ingot
+   price=200  count=1  name=Незеритовый слиток""", """
+minecraft:elytra
+   price=500  count=1  name=Элитры
+   repeat=false""", """
+minecraft:enchanted_golden_apple
+   price=150  count=1  name=Зачарованное яблоко""", """
+minecraft:totem_of_undying
+   price=300  count=1  name=Тотем бессмертия""", """
+minecraft:beacon
+   price=400  count=1  name=Маяк"""]
+	#Список донат-привилегий.
+	#
+	#Формат:
+	#  "<Название>
+	#   price=<цена>
+	#   cmd=<команда>"
+	#
+	#Необязательные параметры:
+	#  repeat=true/false  - повторная покупка (по умолчанию: false)
+	#
+	#{player} в команде заменяется на ник покупателя.
+	#Описания пишутся в group_desc ниже.
+	#
+	#Примеры:
+	#  "VIP
+	#   price=1000
+	#   cmd=lp user {player} parent add vip"
+	#
+	#  "MEDIUM30d
+	#   price=299
+	#   cmd=lp user {player} parent addtemp medium 30d"
+	#
+	#  "Кейс удачи
+	#   price=200
+	#   cmd=give {player} minecraft:chest 1
+	#   repeat=true"
+	donate_groups = ["""
+VIP
+   price=1000
+   cmd=lp user {player} parent add vip""", """
+Premium
+   price=2500
+   cmd=lp user {player} parent add premium""", """
+Elite
+   price=5000
+   cmd=lp user {player} parent add elite"""]
+	#Описания предметов для окна GUI.
+	#
+	#Формат:
+	#  "item=<item_id>
+	#   <строка описания 1>
+	#   <строка описания 2>
+	#   <строка описания 3>"
+	#
+	#item= должен совпадать с item_id из shop_items.
+	#Каждая строка после item=... — отдельная строка в GUI.
+	#
+	#Пример:
+	#  "item=minecraft:elytra
+	#   Редкие крылья с острова Края.
+	#   Позволяют планировать в воздухе.
+	#   Только 1 раз!"
+	item_desc = ["""
+item=minecraft:diamond
+   Прочный минерал для крафта.
+   Нужен для алмазного снаряжения.
+   Можно купить несколько раз.""", """
+item=minecraft:netherite_ingot
+   Самый прочный материал в игре.
+   Крафтится из незеритовых обломков.""", """
+item=minecraft:elytra
+   Редкие крылья с острова Края.
+   Позволяют планировать в воздухе.
+   Только 1 раз!""", """
+item=minecraft:enchanted_golden_apple
+   Даёт мощные временные эффекты:
+   — Регенерация IV
+   — Поглощение IV
+   — Огнестойкость
+   — Сопротивление""", """
+item=minecraft:totem_of_undying
+   Спасёт от смерти один раз.
+   Активируется автоматически
+   при смертельном уроне.""", """
+item=minecraft:beacon
+   Создаёт луч в небо.
+   Даёт эффекты всем игрокам
+   в большом радиусе вокруг."""]
+	#Описания донат-привилегий для окна GUI.
+	#
+	#Формат:
+	#  "group=<Название>
+	#   <строка описания 1>
+	#   <строка описания 2>
+	#   <строка описания 3>"
+	#
+	#group= должен совпадать с названием из donate_groups (регистр не важен).
+	#Каждая строка после group=... — отдельная строка в GUI.
+	#
+	#Пример:
+	#  "group=PLATINUM
+	#   30 дней привилегии.
+	#   Доступные команды: /fly, /top, /god.
+	#   Префикс [PLATINUM] в чате."
+	group_desc = ["""
+group=VIP
+   Цветной ник в чате.
+   Команда /fly — свободный полёт.
+   5 точек дома (/sethome).
+   Префикс [VIP] перед именем.""", """
+group=Premium
+   Всё из VIP, плюс:
+   Режим /god — неуязвимость.
+   15 точек дома.
+   Доступ к /workbench и /enderchest.""", """
+group=Elite
+   Всё из Premium, плюс:
+   Доступ к Creative-инвентарю.
+   Команда /speed 5.
+   Личная комната на сервере."""]
+
+[scoreboard]
+	#Показывать донат-баланс игроков в scoreboard.
+	scoreboard_enabled = true
+	#Где показывать баланс:
+	#  sidebar    — панель справа (список игроков и их DC)
+	#  list       — в TAB-списке рядом с ником
+	#  below_name — число под ником игрока над головой
+	scoreboard_slot = "sidebar"
+	#Заголовок scoreboard (поддерживает §-коды цвета).
+	scoreboard_title = "§6§lDonate-Coins"
+
+[logging]
+	#Логировать все транзакции покупок
+	log_transactions = true
+
+[site]
+	#URL вашего сайта (без слеша в конце). Нужен для /donate cart.
+	#Пример: https://politempire.org
+	site_url = "https://politempire.org"
+	#Секретный ключ для запросов к сайту (должен совпадать с DONATE_API_KEY в .env сайта)
+	site_api_key = "CHANGE_ME"
+	#Период автоматической проверки покупок на сайте (в секундах).
+	#Игрокам сразу выдаются покупки, без необходимости использовать /donate cart.
+	#0 = отключить периодическую проверку.
+	# Default: 30
+	# Range: 0 ~ 3600
+	site_poll_interval = 30
+	#Период автосинка товаров с сайта в GUI магазина (в секундах).
+	#Сайт — источник правды: товары из админки сайта появляются в GUI автоматически.
+	#0 = отключить автосинк товаров.
+	# Default: 300
+	# Range: 0 ~ 86400
+	product_sync_interval = 300
+	#Автоматически выдавать ожидающие покупки при заходе игрока на сервер.
+	site_auto_deliver_on_join = true
+	#Автосинхронизация товаров с сайта (GET /api/shop/products).
+	#Товары сайта появляются в GUI магазина (/donate shop).
+	#Сайт — источник правды: изменения на сайте подтягиваются автоматически.
+	site_shop_sync = true
+	#Режим синхронизации товаров:
+	#  merge   — товары сайта добавляются к товарам из этого конфига
+	#  replace — в GUI показываются ТОЛЬКО товары сайта (config-товары игнорируются,
+	#            пока список с сайта успешно загружен)
+	site_shop_mode = "merge"
+	#Период автосинхронизации товаров с сайта (в секундах). 0 = только при старте сервера.
+	# Default: 60
+	# Range: 0 ~ 86400
+	site_shop_sync_interval = 60

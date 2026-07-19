@@ -1,0 +1,33 @@
+{
+  "materials": [
+    {
+      "item": {
+        "tag": "c:ingots/iron"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:dusts/redstone"
+      },
+      "count": 8
+    },
+    {
+      "item": {
+        "tag": "c:ingots/copper"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:leathers"
+      },
+      "count": 1
+    }
+  ],
+  "result": {
+    "type": "gun",
+    "id": "tacz:p320"
+  },
+  "type": "tacz:gun_smith_table_crafting"
+}

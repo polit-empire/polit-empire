@@ -1,0 +1,67 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.gradle.userdev' version '7.1.38'
+}
+
+version = "${mod_version}"
+group = "${mod_group_id}"
+
+base {
+    archivesName = "${mod_id}-neoforge-${minecraft_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+}
+
+dependencies {
+    implementation "net.neoforged:neoforge:${neo_version}"
+}
+
+// NeoForge run configurations (для локального запуска ./gradlew runClient).
+runs {
+    client {
+        systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+    }
+    server {
+        systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+        programArgument '--nogui'
+    }
+}
+
+// Подстановка переменных из gradle.properties в neoforge.mods.toml.
+def generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    def replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+
+sourceSets.main.resources.srcDir generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    dependsOn generateModMetadata
+}

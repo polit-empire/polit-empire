@@ -1,0 +1,108 @@
+#PlayerRevive Configuration
+[general]
+	#Enable PlayerRevive mod
+	enabled = true
+	#Time in seconds before a downed player dies (0 = infinite)
+	# Default: 120
+	# Range: 0 ~ 3600
+	downedTime = 120
+	#Time in seconds to revive a player
+	# Default: 5
+	# Range: 1 ~ 60
+	reviveTime = 5
+	#Maximum distance to revive a player
+	# Default: 3.0
+	# Range: 1.0 ~ 10.0
+	reviveRange = 3.0
+	#Keep inventory when downed
+	keepInventory = true
+	#Keep experience when downed
+	keepExperience = true
+
+[health]
+	#Health when downed
+	# Default: 2
+	# Range: 1 ~ 20
+	downedHealth = 2
+	#Health when revived (1 = half heart)
+	# Default: 1
+	# Range: 1 ~ 20
+	revivedHealth = 1
+	#Hunger when revived
+	# Default: 3
+	# Range: 0 ~ 20
+	revivedHunger = 3
+
+[bleeding]
+	#Enable bleeding damage while downed
+	enableBleeding = true
+	#Bleeding damage per interval
+	# Default: 1.0
+	# Range: 0.1 ~ 10.0
+	bleedingDamage = 1.0
+	#Bleeding damage interval in ticks (20 ticks = 1 second)
+	# Default: 40
+	# Range: 10 ~ 200
+	bleedingInterval = 40
+
+[revival]
+	#Maximum times a player can be revived (-1 = unlimited)
+	# Default: -1
+	# Range: -1 ~ 100
+	maxRevives = -1
+	#Allow players to revive themselves
+	allowSelfRevive = false
+	#Require an item to revive players
+	requireReviveItem = false
+	#Item required to revive (e.g., minecraft:golden_apple)
+	reviveItem = "minecraft:golden_apple"
+
+[team]
+	#Only team members can revive
+	onlyTeamCanRevive = false
+	#Show indicators for downed teammates
+	showDownedTeammates = true
+	#Range to show teammate indicators
+	# Default: 50.0
+	# Range: 10.0 ~ 200.0
+	teammateIndicatorRange = 50.0
+
+[effects]
+	#Apply slowness effect after revival
+	applySlowness = true
+	#Slowness effect level
+	# Default: 2
+	# Range: 1 ~ 10
+	slownessLevel = 2
+	#Slowness effect duration in seconds
+	# Default: 30
+	# Range: 1 ~ 300
+	slownessDuration = 30
+	#Apply weakness effect after revival
+	applyWeakness = true
+	#Weakness effect level
+	# Default: 1
+	# Range: 1 ~ 10
+	weaknessLevel = 1
+	#Weakness effect duration in seconds
+	# Default: 30
+	# Range: 1 ~ 300
+	weaknessDuration = 30
+
+[commands]
+	#Block command execution while the player is downed (chat messages are still allowed)
+	blockCommandsWhileDowned = true
+
+[death_conditions]
+	#Instant death when falling into void
+	instantDeathFromVoid = true
+	#Instant death from lava
+	instantDeathFromLava = false
+	#Instant death from explosions
+	instantDeathFromExplosion = false
+	#Instant death if damage exceeds this threshold
+	# Default: 100.0
+	# Range: 0.0 ~ 1000.0
+	instantDeathDamageThreshold = 100.0
+	#Kill player if they log out while downed (prevents combat logging)
+	killOnLogoutWhileDowned = true

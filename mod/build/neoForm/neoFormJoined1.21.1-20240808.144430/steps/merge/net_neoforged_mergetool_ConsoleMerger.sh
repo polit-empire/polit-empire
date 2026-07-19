@@ -1,0 +1,3 @@
+#!/bin/bash
+cd "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge"
+exec "/vercel/share/tools/amazon-corretto-21.0.11.10.1-linux-x64/bin/java" -cp "/home/vercel-sandbox/.gradle/caches/modules-2/files-2.1/net.neoforged/mergetool/2.0.3/85c096b0155715275f84922d41462484c9a0285c/mergetool-2.0.3-fatjar.jar" net.neoforged.mergetool.ConsoleMerger "--client" "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripClient/outputs.jar" "--server" "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/stripServer/outputs.jar" "--ann" "1.21.1" "--output" "/vercel/share/v0-project/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/merge/outputs.jar" "--inject" "false"

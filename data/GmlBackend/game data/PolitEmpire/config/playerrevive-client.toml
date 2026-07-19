@@ -1,0 +1,20 @@
+#Client-side Configuration
+[display]
+	#Show revival progress bar
+	showReviveProgress = true
+	#Show timer when downed
+	showDownedTimer = true
+	#Show bleeding visual effect
+	showBleedingEffect = true
+	#Enable screen shake when downed
+	enableScreenShake = true
+	#Screen shake intensity
+	# Default: 0.5
+	# Range: 0.1 ~ 2.0
+	screenShakeIntensity = 0.5
+	#Enable red overlay when downed
+	enableDownedOverlay = true
+	#Overlay opacity (0-255)
+	# Default: 128
+	# Range: 0 ~ 255
+	overlayOpacity = 128

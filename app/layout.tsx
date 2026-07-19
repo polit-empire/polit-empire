@@ -1,0 +1,146 @@
+import { Analytics } from '@vercel/analytics/next'
+import type { Metadata, Viewport } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
+import './globals.css'
+
+const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
+const geistMono = Geist_Mono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+})
+
+const SITE_URL = (
+  process.env.SITE_URL ||
+  process.env.PUBLIC_BASE_URL ||
+  'https://politempire.ru'
+).replace(/\/+$/, '')
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'Polit Empire — военно-политический Minecraft-сервер 1.21.1',
+    template: '%s — Polit Empire',
+  },
+  description:
+    'Военно-политический Minecraft-сервер с модами на 1.21.1: государства, войны, дипломатия, армия и экономика. Скачай официальный лаунчер и присоединяйся к политической войне.',
+  keywords: [
+    'военно-политический сервер',
+    'военно-политический майнкрафт сервер',
+    'политический майнкрафт сервер',
+    'майнкрафт сервер с модами',
+    'minecraft сервер 1.21.1',
+    'сервер с государствами',
+    'сервер с войнами',
+    'политика в майнкрафте',
+    'дипломатия',
+    'экономика',
+    'кланы и войны',
+    'PolitEmpire',
+    'Polit Empire',
+    'политемпайр',
+    'donate сервер minecraft',
+  ],
+  applicationName: 'Polit Empire',
+  authors: [{ name: 'Polit Empire' }],
+  category: 'games',
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'ru_RU',
+    url: SITE_URL,
+    siteName: 'Polit Empire',
+    title: 'Polit Empire — военно-политический Minecraft-сервер 1.21.1',
+    description:
+      'Военно-политический Minecraft-сервер с модами на 1.21.1: государства, войны, дипломатия, армия и экономика. Скачай лаунчер и присоединяйся.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Polit Empire — военно-политический Minecraft-сервер 1.21.1',
+    description:
+      'Государства, войны, дипломатия и экономика на Minecraft 1.21.1. Скачай официальный лаунчер и играй.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  generator: 'v0.app',
+  icons: {
+    icon: [
+      {
+        url: '/icon-light-32x32.png',
+        media: '(prefers-color-scheme: light)',
+      },
+      {
+        url: '/icon-dark-32x32.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+      {
+        url: '/icon.svg',
+        type: 'image/svg+xml',
+      },
+    ],
+    apple: '/apple-icon.png',
+  },
+}
+
+export const viewport: Viewport = {
+  colorScheme: 'dark',
+  themeColor: '#0d1117',
+}
+
+// Структурированные данные (Schema.org) — помогают поисковикам понять,
+// что это игровой проект, и показывать расширенный сниппет.
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: 'Polit Empire',
+      description:
+        'Военно-политический Minecraft-сервер с модами на 1.21.1: государства, войны, дипломатия, армия и экономика.',
+      inLanguage: 'ru-RU',
+    },
+    {
+      '@type': 'VideoGame',
+      name: 'Polit Empire — военно-политический Minecraft-сервер',
+      url: SITE_URL,
+      description:
+        'Военно-политический Minecraft-сервер 1.21.1: создавай государства, веди войны, занимайся дипломатией и экономикой.',
+      inLanguage: 'ru-RU',
+      genre: ['Военно-политический', 'MMO', 'Стратегия', 'Roleplay'],
+      gamePlatform: ['Minecraft Java Edition 1.21.1', 'PC'],
+      keywords:
+        'военно-политический сервер, политический майнкрафт сервер, сервер с государствами и войнами, minecraft 1.21.1',
+    },
+  ],
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="ru" className={`${geistSans.variable} ${geistMono.variable} bg-background`}>
+      <body className="font-sans antialiased">
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {children}
+        {process.env.NODE_ENV === 'production' && <Analytics />}
+      </body>
+    </html>
+  )
+}

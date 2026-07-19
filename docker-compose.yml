@@ -1,0 +1,140 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    # network_mode: host — контейнер использует сетевой стек хоста напрямую.
+    # Нужно потому, что до Telegram работает только IPv6, а внутри обычной
+    # docker-сети IPv6 недоступен (ENETUNREACH). В host-режиме приложение
+    # ходит в Telegram по рабочему IPv6 хоста.
+    network_mode: host
+    # Настройки БД (MYSQL_*), ADMIN_NICKS и т.п. берутся из корневого .env.
+    # Второй файл — env бота: сайт переиспользует те же TG_BOT_TOKEN,
+    # ADMIN_TELEGRAM_IDS и RCON_HOST/PORT/PASSWORD (уведомления о заказах,
+    # выдача привилегий/DC, баны/кик, рассылка) без дублирования значений.
+    # Значения из bot .env перекрывают одноимённые из корневого .env.
+    env_file:
+      - .env
+      - ./politempire_bots/.env
+    environment:
+      STORAGE_DIR: /data/politempire
+      # Слушаем только localhost — наружу приложение отдаётся через Nginx.
+      HOSTNAME: 127.0.0.1
+      PORT: ${APP_PORT:-3001}
+    volumes:
+      - storage:/data/politempire
+
+  # Telegram + Discord бот (politempire_bots): регистрация, 2FA, рефералка,
+  # HTTP API для Minecraft-плагина (порт 8180). Работает через long polling
+  # и при старте снимает Telegram webhook (заменяет старый webhook-бот сайта).
+  # Настройки — в politempire_bots/.env (см. politempire_bots/.env.example).
+  bots:
+    build: ./politempire_bots
+    restart: unless-stopped
+    # host-сеть: доступ к Telegram по IPv6 хоста
+    network_mode: host
+    env_file: ./politempire_bots/.env
+
+  # БД — внешний MySQL (82.117.87.152:3306), локальный контейнер не нужен.
+  # Настройки подключения задаются в .env (MYSQL_*).
+
+  # ============================================================
+  # GML — панель управления и бэкенд лаунчер-платформы
+  # Панель:   http://127.0.0.1:${PORT_GML_FRONTEND:-5003} (через gml-web-proxy)
+  # Наружу отдаётся через nginx (см. README).
+  # ============================================================
+
+  # Бэкенд GML (Gml.Web.Api) — ядро: профили, сборки, интеграции, авторизация
+  gml-web-api:
+    image: ghcr.io/gml-launcher/gml.web.api:master
+    container_name: gml-web-api
+    restart: unless-stopped
+    # От root: файлы сборки заливаются по SFTP под root, и процесс GML должен
+    # иметь полный доступ к /root/<проект> (иначе Permission denied при
+    # сканировании/компиляции профиля).
+    user: "0:0"
+    volumes:
+      - ./data/GmlBackend:/root/${GML_PROJECT_NAME:-PolitEmpire}
+      - ./data/backups:/root/${GML_PROJECT_NAME:-PolitEmpire}/backups
+      - ./data/GmlDatabase:/app/database
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8082;
+      - SECURITY_KEY=${GML_SECURITY_KEY}
+      - PROJECT_NAME=${GML_PROJECT_NAME:-PolitEmpire}
+      - PROJECT_DESCRIPTION=${GML_PROJECT_DESCRIPTION:-Polit Empire}
+      - PROJECT_POLICYNAME=${GML_PROJECT_POLICYNAME:-Policy}
+      - MARKET_ENDPOINT=${GML_MARKET_ENDPOINT:-https://gml-market.recloud.tech}
+      - SWAGGER_ENABLED=${GML_SWAGGER_ENABLED:-true}
+      - PROJECT_PATH=
+      - SERVICE_TEXTURE_ENDPOINT=http://gml-web-skins:8085
+      - TZ=Europe/Moscow
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - gml-network
+
+  # Reverse-proxy GML — единая точка входа: /api → gml-web-api, / → панель
+  gml-web-proxy:
+    image: ghcr.io/gml-launcher/gml.web.proxy:master
+    container_name: gml-web-proxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT_GML_FRONTEND:-5003}:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080;
+      - TZ=Europe/Moscow
+    depends_on:
+      - gml-web-api
+      - gml-web-frontend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - gml-network
+
+  # Панель управления GML (Gml.Web.Client) — собирается из исходников в panel/
+  gml-web-frontend:
+    build: ./panel
+    container_name: gml-web-frontend
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Moscow
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - gml-network
+
+  # Сервис скинов GML
+  gml-web-skins:
+    image: ghcr.io/gml-launcher/gml.web.skin.service:master
+    container_name: gml-web-skins
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8085;
+      - TZ=Europe/Moscow
+    volumes:
+      - ./data/TextureService:/app/Storage
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - gml-network
+
+networks:
+  gml-network:
+    attachable: true
+
+volumes:
+  storage:

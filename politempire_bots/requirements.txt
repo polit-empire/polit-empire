@@ -1,0 +1,8 @@
+aiogram>=3.13
+discord.py>=2.4
+aiomysql>=0.2.0
+aiohttp>=3.9
+aiohttp-socks>=0.9
+aio-mc-rcon>=3.2.2
+mcstatus>=11.1
+python-dotenv>=1.0

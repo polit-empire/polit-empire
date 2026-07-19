@@ -1,0 +1,6 @@
+[
+  {"version":2},
+  {"ingredient":{"id":"minecraft:oak_log"},"type":"item_stack","bookmarkType":"INGREDIENT"},
+  {"ingredient":{"id":"superbwarfare:blu_43_mine"},"type":"item_stack","bookmarkType":"INGREDIENT"},
+  {"ingredient":{"id":"superbwarfare:heavy_ammo"},"type":"item_stack","bookmarkType":"INGREDIENT"}
+]

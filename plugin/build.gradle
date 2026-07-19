@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+}
+
+group = 'ru.politempire'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    // Paper API
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    // PlaceholderAPI
+    maven { url = 'https://repo.extendedclip.com/content/repositories/placeholderapi/' }
+    // Резервный репозиторий для старых артефактов
+    maven { url = 'https://oss.sonatype.org/content/repositories/snapshots' }
+}
+
+dependencies {
+    // Сервер и PlaceholderAPI предоставляются рантаймом — только компиляция.
+    compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties(props)
+    filesMatching('plugin.yml') {
+        expand(props)
+    }
+}

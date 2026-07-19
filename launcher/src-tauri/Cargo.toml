@@ -1,0 +1,71 @@
+[package]
+name = "polit-empire-launcher"
+version = "1.0.0"
+description = "Официальный лаунчер Minecraft-сервера Polit Empire"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# Обфускация:
+#  • cfobf — control-flow обфускация (goldberg): чувствительные функции защиты
+#    (anti-debug, проверка аргументов запуска, сверка целостности) превращаются в
+#    плоский конечный автомат, что резко усложняет чтение декомпилятором.
+#    Включена по умолчанию. Если сборка на Windows-машине падает на goldberg —
+#    достаточно убрать "cfobf" из default (одна строка) и всё соберётся без CFO,
+#    строковая и фронтенд-обфускация при этом сохраняются.
+[features]
+default = ["cfobf"]
+cfobf = ["dep:goldberg"]
+
+[dependencies]
+# Control-flow обфускация (proc-macro). Опциональна, включается фичей `cfobf`.
+goldberg = { version = "0.1", optional = true }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream", "blocking"] }
+tokio = { version = "1", features = ["full"] }
+sha1 = "0.10"
+# SHA-256 для self-integrity: лаунчер хеширует собственный .exe и шлёт хеш
+# на сайт для сверки с белым списком официальных сборок.
+sha2 = "0.10"
+hex = "0.4"
+dirs = "5"
+futures-util = "0.3"
+thiserror = "1"
+sysinfo = "0.33"
+uuid = { version = "1", features = ["v4"] }
+# Нативный диалог выбора файла (для ручного указания пути к java.exe).
+rfd = "0.14"
+# Нативный Discord IPC / Rich Presence. Работает из Rust-бэкенда даже когда
+# окно Tauri скрыто в трей во время игры.
+discord-rich-presence = "0.2.5"
+
+# WinAPI для инжекта античит-DLL и перечисления модулей процесса игры.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_Memory",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Diagnostics_Debug",
+  # ReadFile принимает *mut OVERLAPPED → нужен Win32_System_IO.
+  "Win32_System_IO",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Pipes",
+] }
+
+# Защита от реверс-инжиниринга:
+# - strip: удаляем символы и отладочную информацию из бинарника
+# - lto + codegen-units=1: агрессивная межмодульная оптимизация, усложняет декомпиляцию
+# - panic=abort: убираем стектрейсы с путями исходников из бинарника
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
+codegen-units = 1
+panic = "abort"

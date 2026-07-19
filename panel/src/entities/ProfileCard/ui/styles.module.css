@@ -1,0 +1,47 @@
+.profile-card {
+    @apply flex flex-col rounded-lg border bg-card text-card-foreground shadow-sm justify-between p-6 min-h-[289px] xl:max-w-[510px] bg-no-repeat bg-cover bg-center;
+}
+
+.profile-card__edit-button {
+    @apply flex flex-col-reverse gap-3 md:flex-row md:justify-between w-full;
+}
+
+.profile-card__edit-button-full {
+    @apply gap-3 rounded-full;
+}
+
+.profile-card__info {
+    @apply flex flex-col gap-3;
+}
+
+.profile-card__info-state {
+    @apply flex items-center gap-2;
+}
+
+.profile-card__info-icon-wrapper {
+    @apply flex gap-x-5 items-start;
+}
+
+.profile-card__info-icon {
+    @apply h-16 w-16 min-w-16 min-h-16 object-cover rounded;
+}
+
+.profile-card__info-text {
+    @apply flex flex-col gap-y-1 w-[calc(100%-20px-64px)];
+}
+
+.profile-card__info-name {
+    @apply truncate font-extrabold text-[28px];
+}
+
+.profile-card__info-version {
+    @apply flex gap-2;
+}
+
+.profile-card__info-version-minecraft {
+    @apply truncate font-bold;
+}
+
+.profile-card__info-version-launch {
+    @apply truncate font-medium opacity-55;
+}

@@ -1,0 +1,27 @@
+{
+  "materials": [
+    {
+      "item": {
+        "tag": "c:ingots/iron"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:ingots/copper"
+      },
+      "count": 16
+    },
+    {
+      "item": {
+        "tag": "c:leathers"
+      },
+      "count": 1
+    }
+  ],
+  "result": {
+    "type": "gun",
+    "id": "tacz:cz75"
+  },
+  "type": "tacz:gun_smith_table_crafting"
+}
