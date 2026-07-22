@@ -42,13 +42,13 @@ public final class PlayerListener implements Listener {
         InetSocketAddress addr = player.getAddress();
         String ip = addr != null ? addr.getAddress().getHostAddress() : null;
 
-        // Регистрируем сессию в PlaytimeManager (для кэша плейтайма)
-        PlaytimeManager.get().onJoin(player);
-
         api.playerJoin(username, ip).thenAccept(result ->
                 // Возвращаемся в основной поток сервера
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (!player.isOnline()) return;
+
+                    // Регистрируем сессию в PlaytimeManager ПОСЛЕ открытия сессии на бот-сервере
+                    PlaytimeManager.get().onJoin(player);
 
                     if (result.apiError()) {
                         // API недоступен - не блокируем игрока, только предупреждаем в лог

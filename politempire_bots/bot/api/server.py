@@ -29,7 +29,7 @@ from bot.tg import notify
 
 log = logging.getLogger("api")
 
-TICK_SECONDS = 60
+TICK_SECONDS = 10
 
 
 @web.middleware
@@ -106,14 +106,15 @@ async def handle_2fa_verify(request: web.Request) -> web.Response:
 
 async def _close_session(username: str) -> None:
     session = await db.fetchone(
-        "SELECT joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at "
+        "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
+        "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
+        "UNIX_TIMESTAMP() AS now_ts "
         "FROM bot_play_sessions WHERE mc_username=%s", (username,)
     )
     if not session:
         return
-    now = datetime.utcnow()
-    total_session = int((now - session["joined_at"]).total_seconds())
-    unticked = int((now - session["ticked_at"]).total_seconds())
+    total_session = max(0, session["now_ts"] - session["joined_ts"])
+    unticked = max(0, session["now_ts"] - session["ticked_ts"])
 
     await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
     if total_session > 0:
@@ -186,14 +187,15 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
     )
     # Учитываем также время текущей незакрытой сессии
     session = await db.fetchone(
-        "SELECT joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at FROM bot_play_sessions WHERE mc_username=%s", (username,)
+        "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
+        "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
+        "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions WHERE mc_username=%s", (username,)
     )
     live_secs = 0
     unticked_secs = 0
     if session:
-        now = datetime.utcnow()
-        live_secs = max(0, int((now - session["joined_at"]).total_seconds()))
-        unticked_secs = max(0, int((now - session["ticked_at"]).total_seconds()))
+        live_secs = max(0, session["now_ts"] - session["joined_ts"])
+        unticked_secs = max(0, session["now_ts"] - session["ticked_ts"])
 
     stored_total = row["total_seconds"] if row else 0
     stored_count = row["session_count"] if row else 0
@@ -227,21 +229,22 @@ async def handle_player_balance(request: web.Request) -> web.Response:
 
 
 async def _playtime_ticker() -> None:
-    """Каждую минуту добавляет время открытым сессиям, чтобы порог 10 минут
+    """Каждые 10 секунд добавляет время открытым сессиям, чтобы порог 10 минут
     срабатывал без ожидания выхода игрока."""
     while True:
         await asyncio.sleep(TICK_SECONDS)
         try:
             sessions = await db.fetchall(
-                "SELECT mc_username, joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at FROM bot_play_sessions"
+                "SELECT mc_username, UNIX_TIMESTAMP(joined_at) AS joined_ts, "
+                "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
+                "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions"
             )
-            now = datetime.utcnow()
             for s in sessions:
-                delta = max(0, int((now - s["ticked_at"]).total_seconds()))
-                live_secs = max(0, int((now - s["joined_at"]).total_seconds()))
+                delta = max(0, s["now_ts"] - s["ticked_ts"])
+                live_secs = max(0, s["now_ts"] - s["joined_ts"])
                 await db.execute(
-                    "UPDATE bot_play_sessions SET last_ticked_at=UTC_TIMESTAMP() WHERE mc_username=%s",
-                    (s["mc_username"],),
+                    "UPDATE bot_play_sessions SET last_ticked_at=FROM_UNIXTIME(%s) WHERE mc_username=%s",
+                    (s["now_ts"], s["mc_username"]),
                 )
                 if delta > 0:
                     await _add_playtime(s["mc_username"], delta)
