@@ -161,6 +161,9 @@ export default function ProfileTab({ nickname }: Props) {
               {playtime.total_seconds > 0 && (
                 <div className="mt-2 flex gap-4 text-xs text-muted">
                   <span>Сессий: {playtime.session_count}</span>
+                  {playtime.last_session_seconds > 0 && (
+                    <span>Последняя: {formatPlaytime(playtime.last_session_seconds)}</span>
+                  )}
                   <span>Лучшая: {formatPlaytime(playtime.longest_session_seconds)}</span>
                 </div>
               )}

@@ -63,7 +63,7 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
         int seconds = pm.getPlaytimeSeconds(player);
 
         return switch (params.toLowerCase()) {
-            case "", "formatted" -> pm.getPlaytimeFormatted(player);
+            case "", "playtime", "formatted" -> pm.getPlaytimeFormatted(player);
             case "seconds"       -> String.valueOf(seconds);
             case "hours"         -> String.valueOf(seconds / 3600);
             case "minutes"       -> String.valueOf((seconds % 3600) / 60);

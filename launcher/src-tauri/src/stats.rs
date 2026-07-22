@@ -233,10 +233,6 @@ async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let settings = crate::config::load_settings();
     let nickname = settings.nickname.as_deref()?;
 
-    // Запрос идёт через сайт (api_base), который проксируется на bot API.
-    // Bot API endpoint: GET /api/player/playtime?username=...
-    // Используем api_base() лаунчера — тот же хост, что и для остальных
-    // API-вызовов (телеметрия, скины, новости).
     let base = crate::config::api_base();
     let url = format!(
         "{}/api/player/playtime?username={}",
@@ -262,18 +258,25 @@ async fn fetch_server_playtime() -> Option<PlaytimeStats> {
         .get("playtime_seconds")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-
-    // Объединяем: серверный total_seconds — авторитетный; локальные данные
-    // (session_count, longest_session, last_session) — дополняющие, их
-    // сервер пока не отдаёт (могут быть добавлены позже).
-    let local = load_stats();
+    let session_count = body
+        .get("session_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let longest = body
+        .get("longest_session_seconds")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let last_session = body
+        .get("last_session_seconds")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
     Some(PlaytimeStats {
         total_seconds: total,
-        session_count: local.session_count,
-        last_session_seconds: local.last_session_seconds,
-        longest_session_seconds: local.longest_session_seconds,
-        last_played_unix: local.last_played_unix,
+        session_count,
+        last_session_seconds: last_session,
+        longest_session_seconds: longest,
+        last_played_unix: 0,
     })
 }
 

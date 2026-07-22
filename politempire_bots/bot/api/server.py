@@ -111,8 +111,10 @@ async def _close_session(username: str) -> None:
     seconds = int((datetime.utcnow() - session["joined_at"]).total_seconds())
     await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
     if seconds > 0:
-        await _add_playtime(username, min(seconds, 24 * 3600))
-        await referrals.add_playtime(username, min(seconds, 24 * 3600))
+        capped = min(seconds, 24 * 3600)
+        await _add_playtime(username, capped)
+        await _update_session_stats(username, capped)
+        await referrals.add_playtime(username, capped)
 
 
 async def handle_player_quit(request: web.Request) -> web.Response:
@@ -139,13 +141,27 @@ async def _add_playtime(username: str, seconds: int) -> None:
     )
 
 
+async def _update_session_stats(username: str, session_seconds: int) -> None:
+    """Обновляет статистику сессий: количество, лучшая, последняя."""
+    await db.execute(
+        "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
+        "VALUES (%s, 1, %s, %s) "
+        "ON DUPLICATE KEY UPDATE "
+        "session_count = session_count + 1, "
+        "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
+        "last_session_seconds = VALUES(last_session_seconds)",
+        (username, session_seconds, session_seconds),
+    )
+
+
 async def handle_player_playtime(request: web.Request) -> web.Response:
-    """GET /api/player/playtime?username=... -> {"playtime_seconds": 12345}"""
+    """GET /api/player/playtime?username=... -> {"playtime_seconds": N, "session_count": N, "longest_session_seconds": N, "last_session_seconds": N}"""
     username = (request.query.get("username") or "").strip()
     if not username:
         return web.json_response({"error": "username required"}, status=400)
     row = await db.fetchone(
-        "SELECT total_seconds FROM bot_playtime WHERE mc_username=%s", (username,)
+        "SELECT total_seconds, session_count, longest_session_seconds, last_session_seconds "
+        "FROM bot_playtime WHERE mc_username=%s", (username,)
     )
     # Учитываем также время текущей незакрытой сессии
     session = await db.fetchone(
@@ -155,7 +171,12 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
     if session:
         live = int((datetime.utcnow() - session["joined_at"]).total_seconds())
     total = (row["total_seconds"] if row else 0) + max(0, live)
-    return web.json_response({"playtime_seconds": total})
+    return web.json_response({
+        "playtime_seconds": total,
+        "session_count": row["session_count"] if row else 0,
+        "longest_session_seconds": row["longest_session_seconds"] if row else 0,
+        "last_session_seconds": row["last_session_seconds"] if row else 0,
+    })
 
 
 async def handle_player_balance(request: web.Request) -> web.Response:
