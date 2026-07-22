@@ -868,7 +868,7 @@ fn launch_game(game_dir: &Path, java_path_override: &str, profile: &GmlProfile) 
         .map(|tok| force_authlib_endpoint(tok, &auth_endpoint))
         .collect();
 
-    // ����РИТИЧНО: GML не всегда добавляет authlib-injector в аргументы клиента.
+    // КРИТИЧНО: GML не всегда добавляет authlib-injector в аргументы клиента.
     // Без этого агента игра проверяет вход на настоящем sessionserver.mojang.com
     // (аккаунта там нет) и сервер отвечает «недействительная сессия». Если в
     // аргументах ещё нет authlib-injector — распаковываем вшитый jar и вставляем
@@ -998,10 +998,7 @@ fn launch_game(game_dir: &Path, java_path_override: &str, profile: &GmlProfile) 
     // с «В лаунчере» на «Играет на сервере» и запускаем таймер сессии.
     crate::discord_rpc::set_playing();
 
-    // Засекаем начало игровой сессии для подсчёта наигранного времени.
-    // Финализация (учёт длительности) произойдёт при завершении игры —
-    // см. is_game_running()/kill_game().
-    crate::stats::begin_session();
+
 
     // Запускаем античит: инжектим DLL в процесс игры и мониторим нар��шения.
     crate::inject::start_monitor(game_pid);
@@ -1024,7 +1021,6 @@ pub fn is_game_running() -> bool {
         match child.try_wait() {
             Ok(Some(_)) => {
                 *guard = None; // процесс завершился
-                crate::stats::finish_session();
                 crate::discord_rpc::set_launcher();
                 false
             }
@@ -1033,7 +1029,6 @@ pub fn is_game_running() -> bool {
                 // Если состояние процесса прочитать не удалось, больше не
                 // считаем игру запущенной и возвращаем presence лаунчера.
                 *guard = None;
-                crate::stats::finish_session();
                 crate::discord_rpc::set_launcher();
                 false
             }
@@ -1051,7 +1046,6 @@ pub fn kill_game() -> Result<bool, String> {
         // Уже завершилась сама?
         if let Ok(Some(_)) = child.try_wait() {
             *guard = None;
-            crate::stats::finish_session();
             crate::discord_rpc::set_launcher();
             return Ok(false);
         }

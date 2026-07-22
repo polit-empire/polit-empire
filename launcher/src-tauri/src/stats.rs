@@ -1,30 +1,17 @@
 //! Статистика игрового времени: сколько всего наиграно, число сессий,
 //! самая долгая сессия и сводка по последней сессии.
 //!
-//! ЗАЩИТА ОТ ПОДМЕНЫ. Раньше статистика лежала открытым JSON — любой
-//! мог открыть файл и «подкрутить часы». Теперь на диске лежит не голые
-//! цифры, а подписанный контейнер: к данным считается HMAC-SHA256 на
-//! ключе, который складывается из вшитого (обфусцированного) секрета и HWID
-//! устройства. Любая ручная правка файла ломает подпись — такой файл
-//! считается недействительным и статистика обнуляется. Привязка к HWID
-//! дополнительно не даёт перенести чужой «накрученный» файл на другой ПК.
-//!
-//! Это не криптографически непробиваемо (ключ вшит в бинарник), но
-//! полностью закрывает простое редактирование файла блокнотом. Единственный
-//! по-настоящему неподдельный вариант — считать время на сервере (см.
-//! push_session_to_server ниже: длительность сессии уже уходит в телеметрию).
+//! ЕДИНСТВЕННЫЙ ИСТОЧНИК ИСТИНЫ — сервер (bot API /api/player/playtime).
+//! Локальный файл отсчёта сессий полностью удалён, чтобы клиентское время
+//! в меню игры не учитывалось как наигранные часы.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-/// Сохраняемая статистика игрового времени («полезная нагрузка», которая
-/// подписывается). Порядок полей ФИКСИРОВАН: от него зависит
-/// детерминированная сериализация при проверке подписи.
+/// Статистика игрового времени, получаемая с сервера.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaytimeStats {
-    /// Суммарное наигранное время за всё время (в секундах).
+    /// Суммарное наигранное время за всё время на сервере (в секундах).
     #[serde(default)]
     pub total_seconds: u64,
     /// Количество завершённых игровых сессий.
@@ -53,241 +40,26 @@ impl Default for PlaytimeStats {
     }
 }
 
-/// Подписанный контейнер, который реально лежит на диске.
-#[derive(Serialize, Deserialize)]
-struct SignedStats {
-    data: PlaytimeStats,
-    /// HMAC-SHA256 от канонической сериализации data (hex).
-    sig: String,
-}
-
-/// Начало текущей игровой сессии (монотонные часы). None — игра не идёт.
-static SESSION_START: Mutex<Option<Instant>> = Mutex::new(None);
-
 fn stats_path() -> PathBuf {
     crate::config::default_game_dir().join("playtime-stats.json")
 }
 
-/// HMAC-SHA256 без внешних крейтов — поверх sha2 (RFC 2104).
-fn hmac_sha256(key: &[u8], msg: &[u8]) -> Vec<u8> {
-    use sha2::{Digest, Sha256};
-    const BLOCK: usize = 64; // размер блока SHA-256
-
-    // Ключ нормализуем до размера блока.
-    let mut key_block = [0u8; BLOCK];
-    if key.len() > BLOCK {
-        let mut h = Sha256::new();
-        h.update(key);
-        let digest = h.finalize();
-        key_block[..digest.len()].copy_from_slice(&digest);
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
-    }
-
-    let mut ipad = [0x36u8; BLOCK];
-    let mut opad = [0x5cu8; BLOCK];
-    for i in 0..BLOCK {
-        ipad[i] ^= key_block[i];
-        opad[i] ^= key_block[i];
-    }
-
-    let mut inner = Sha256::new();
-    inner.update(ipad);
-    inner.update(msg);
-    let inner_digest = inner.finalize();
-
-    let mut outer = Sha256::new();
-    outer.update(opad);
-    outer.update(inner_digest);
-    outer.finalize().to_vec()
-}
-
-/// Ключ подписи = вшитый (обфусцированный) секрет + HWID устройства.
-/// Привязка к HWID делает подпись уникальной для каждого ПК.
-fn signing_key() -> Vec<u8> {
-    let secret = crate::obf_str!("pe-playtime-hmac-v1-6f3a9c1b");
-    let hwid = crate::config::get_or_create_hwid();
-    format!("{secret}:{hwid}").into_bytes()
-}
-
-/// Каноническое сообщение для подписи (с доменным разделителем).
-/// serde_json сериализует поля структуры в порядке объявления — результат
-/// детерминирован, поэтому подпись стабильна.
-fn message_for(data: &PlaytimeStats) -> Vec<u8> {
-    let json = serde_json::to_string(data).unwrap_or_default();
-    format!("pe-playtime-v1|{json}").into_bytes()
-}
-
-fn compute_sig(data: &PlaytimeStats) -> String {
-    hex::encode(hmac_sha256(&signing_key(), &message_for(data)))
-}
-
-/// Сравнение подписей за постоянное время (без раннего выхода по расхождению).
-fn sig_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for i in 0..a.len() {
-        diff |= a[i] ^ b[i];
-    }
-    diff == 0
-}
-
-/// Загружает статистику с диска С ПРОВЕРКОЙ ПОДПИСИ. Если файла нет,
-/// он повреждён или подпись не сошлась (ручная правка / чужой ПК) —
-/// возвращается нулевая статистика.
-pub fn load_stats() -> PlaytimeStats {
+/// Удаляет устаревший локальный файл статистики, если он есть на диске.
+fn remove_legacy_stats_file() {
     let path = stats_path();
-    let Ok(raw) = std::fs::read_to_string(&path) else {
-        return PlaytimeStats::default();
-    };
-    let Ok(signed) = serde_json::from_str::<SignedStats>(&raw) else {
-        return PlaytimeStats::default();
-    };
-    if sig_eq(&signed.sig, &compute_sig(&signed.data)) {
-        signed.data
-    } else {
-        // Подпись не сошлась — файл правили вручную или перенесли с другого
-        // устройства. Не доверяем таким данным — обнуляем.
-        PlaytimeStats::default()
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
     }
 }
 
-fn persist_stats(stats: &PlaytimeStats) {
-    let path = stats_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let signed = SignedStats {
-        sig: compute_sig(stats),
-        data: stats.clone(),
-    };
-    if let Ok(raw) = serde_json::to_string_pretty(&signed) {
-        let _ = std::fs::write(&path, raw);
-    }
-}
-
-/// Отмечает старт игровой сессии. Вызывается при успешном запуске игры.
-pub fn begin_session() {
-    *SESSION_START.lock().unwrap() = Some(Instant::now());
-}
-
-/// Завершает текущую сессию: считает длительность, обновляет и подписывает
-/// статистику. Безопасно вызывать несколько раз — учитывается только один раз.
-pub fn finish_session() {
-    let started = SESSION_START.lock().unwrap().take();
-    let Some(started) = started else {
-        return;
-    };
-    let elapsed = started.elapsed().as_secs();
-    // Отсекаем «ложные» сессии длиной меньше секунды.
-    if elapsed < 1 {
-        return;
-    }
-
-    let mut stats = load_stats();
-    stats.total_seconds = stats.total_seconds.saturating_add(elapsed);
-    stats.session_count = stats.session_count.saturating_add(1);
-    stats.last_session_seconds = elapsed;
-    if elapsed > stats.longest_session_seconds {
-        stats.longest_session_seconds = elapsed;
-    }
-    stats.last_played_unix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    persist_stats(&stats);
-
-    let total_to_sync = stats.total_seconds;
-    tauri::async_runtime::spawn(async move {
-        sync_playtime_to_server(total_to_sync).await;
-    });
-
-    // Дублируем длительность сессии на сервер (телеметрия). Это единственный
-    // источник, который игрок не может поправить локально: если на сервере
-    // вести сумму, локальный файл вообще перестаёт быть авторитетным.
-    crate::telemetry::report_telemetry_event("playtime_session", &elapsed.to_string());
-}
-
-/// Отправляет наигранное время из лаунчера на сервер, если в локальном кэше значение выше.
-pub async fn sync_playtime_to_server(total_seconds: u64) {
-    if total_seconds == 0 {
-        return;
-    }
-    let settings = crate::config::load_settings();
-    let Some(nickname) = settings.nickname.as_deref() else {
-        return;
-    };
-
-    let base = crate::config::api_base();
-    let url = format!("{}/api/player/playtime", base);
-
-    let client = reqwest::Client::new();
-    let _ = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
-            "username": nickname,
-            "total_seconds": total_seconds
-        }))
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await;
-}
-
-/// Возвращает текущую статистику игрового времени для интерфейса.
-///
-/// ИСТОЧНИК ИСТИНЫ — сервер (bot API /api/player/playtime), не локальный файл.
-/// Локальный подписанный файл используется только как кэш/фолбэк, когда сервер
-/// недоступен. Это гарантирует, что наигранное время в лаунчере совпадает с
-/// временем в БД (и с плейсхолдером %botlink_playtime% на сервере).
-///
-/// Запрос к bot API идёт с токеном сессии GML (Bearer) — тот же механизм
-/// авторизации, что и у остальных API-вызовов лаунчера. Сервер определяет
-/// игрока по нику из JWT-токена.
+/// Возвращает текущую статистику игрового времени напрямую с сервера.
 #[tauri::command]
 pub async fn get_playtime_stats() -> PlaytimeStats {
-    let local = load_stats();
-    // Пытаемся получить реальный плейтайм с сервера.
-    if let Some(mut server_stats) = fetch_server_playtime().await {
-        // Объединяем серверную статистику и локальный кэш (берём максимум),
-        // чтобы нулевые/неполные данные сервера не обнуляли локальный прогресс.
-        if local.total_seconds > server_stats.total_seconds {
-            let target_total = local.total_seconds;
-            server_stats.total_seconds = target_total;
-            tauri::async_runtime::spawn(async move {
-                sync_playtime_to_server(target_total).await;
-            });
-        }
-        if local.session_count > server_stats.session_count {
-            server_stats.session_count = local.session_count;
-        }
-        if local.longest_session_seconds > server_stats.longest_session_seconds {
-            server_stats.longest_session_seconds = local.longest_session_seconds;
-        }
-        if server_stats.last_played_unix == 0 {
-            server_stats.last_played_unix = local.last_played_unix;
-        }
-
-        // Сохраняем актуальный максимум в локальный подписанный кэш
-        persist_stats(&server_stats);
-        return server_stats;
-    }
-    // Сервер недоступен — если есть локальное время, пытаемся синхронизировать в фоне
-    if local.total_seconds > 0 {
-        let local_total = local.total_seconds;
-        tauri::async_runtime::spawn(async move {
-            sync_playtime_to_server(local_total).await;
-        });
-    }
-    local
+    remove_legacy_stats_file();
+    fetch_server_playtime().await.unwrap_or_default()
 }
 
-/// Запрашивает наигранное время у bot API.
-/// Bot API хранит данные в MySQL (таблица bot_playtime) — это единый источник
-/// истины для лаунчера, плагина BotLink и плейсхолдера %botlink_playtime%.
+/// Запрашивает наигранное время у bot API (БД MySQL).
 async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let settings = crate::config::load_settings();
     let nickname = settings.nickname.as_deref()?;
