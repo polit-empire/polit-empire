@@ -70,8 +70,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Товар недоступен" }, { status: 404 })
   }
 
-  // Привилегия и предмет покупаются только за баланс DC — мгновенно.
-  if (product.kind === "privilege" || product.kind === "item") {
+  // Привилегия, предмет и другие товары за DC покупаются за баланс DC — мгновенно.
+  if (product.kind === "privilege" || product.kind === "item" || product.kind === "other") {
     if (method !== "dc") {
       return Response.json({ error: "Этот товар покупается только за DC" }, { status: 400 })
     }

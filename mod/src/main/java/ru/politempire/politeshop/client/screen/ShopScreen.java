@@ -28,6 +28,7 @@ public class ShopScreen extends Screen {
     private String status = "";
     private int statusColor = 0xFFCCCCCC;
     private int page = 0;
+    private int selectedCategory = 0; // 0=Все, 1=Привилегии, 2=Предметы, 3=DC, 4=Другое
     private int panelLeft, panelTop;
 
     public ShopScreen() {
@@ -44,7 +45,19 @@ public class ShopScreen extends Screen {
 
     private int cardX() { return panelLeft + 10; }
     private int cardW() { return PANEL_W - 20; }
-    private int cardsTop() { return panelTop + 50; }
+    private int cardsTop() { return panelTop + 52; }
+
+    private List<ShopProduct> getFilteredProducts() {
+        if (selectedCategory == 0) return products;
+        List<ShopProduct> filtered = new ArrayList<>();
+        for (ShopProduct p : products) {
+            if (selectedCategory == 1 && p.isPrivilege()) filtered.add(p);
+            else if (selectedCategory == 2 && p.isItem()) filtered.add(p);
+            else if (selectedCategory == 3 && p.isDcPackage()) filtered.add(p);
+            else if (selectedCategory == 4 && p.isOther()) filtered.add(p);
+        }
+        return filtered;
+    }
 
     private void fetch() {
         loading = true;
@@ -80,15 +93,39 @@ public class ShopScreen extends Screen {
 
         if (loading) return;
 
-        // Кнопка «Оплатить» только для пакетов DC — они оплачиваются на сайте,
-        // экран описания им не нужен. Остальные товары открываются по клику
-        // на карточку (см. mouseClicked) — там своя кнопка «Купить».
+        // Переключатели категорий под шапкой
+        String[] catLabels = {"Все", "Прив.", "Предметы", "DC", "Другое"};
+        int tabW = 64;
+        int tabGap = 4;
+        int startX = panelLeft + (PANEL_W - (5 * tabW + 4 * tabGap)) / 2;
+        for (int i = 0; i < 5; i++) {
+            final int catIndex = i;
+            StyledButton btn = StyledButton.neutral(
+                    startX + i * (tabW + tabGap), panelTop + 30, tabW, 16,
+                    Component.literal(catLabels[i]),
+                    () -> {
+                        if (selectedCategory != catIndex) {
+                            selectedCategory = catIndex;
+                            page = 0;
+                            rebuild();
+                        }
+                    }
+            );
+            if (selectedCategory == catIndex) {
+                btn.active = false;
+            }
+            addRenderableWidget(btn);
+        }
+
+        List<ShopProduct> list = getFilteredProducts();
+
+        // Кнопка «Оплатить» только для пакетов DC — они оплачиваются на сайте
         int start = page * PER_PAGE;
         int btnW = 108;
         for (int i = 0; i < PER_PAGE; i++) {
             int idx = start + i;
-            if (idx >= products.size()) break;
-            ShopProduct p = products.get(idx);
+            if (idx >= list.size()) break;
+            ShopProduct p = list.get(idx);
             if (!p.isDcPackage()) continue;
             int y = cardsTop() + i * (CARD_H + CARD_GAP);
             int bx = cardX() + cardW() - btnW - 6;
@@ -110,7 +147,7 @@ public class ShopScreen extends Screen {
     }
 
     private int totalPages() {
-        return Math.max(1, (int) Math.ceil(products.size() / (double) PER_PAGE));
+        return Math.max(1, (int) Math.ceil(getFilteredProducts().size() / (double) PER_PAGE));
     }
 
     private void buy(ShopProduct p) {
@@ -159,23 +196,25 @@ public class ShopScreen extends Screen {
 
         // Панель со скруглённой шапкой.
         gfx.fill(panelLeft, panelTop, panelLeft + PANEL_W, panelTop + PANEL_H, 0xF2141821);
-        gfx.fill(panelLeft, panelTop, panelLeft + PANEL_W, panelTop + 30, 0xFF1B2130);
+        gfx.fill(panelLeft, panelTop, panelLeft + PANEL_W, panelTop + 28, 0xFF1B2130);
         gfx.renderOutline(panelLeft, panelTop, PANEL_W, PANEL_H, 0xFF2E3547);
         // Разделитель под шапкой.
-        gfx.fill(panelLeft + 1, panelTop + 30, panelLeft + PANEL_W - 1, panelTop + 31, 0xFF2E3547);
+        gfx.fill(panelLeft + 1, panelTop + 28, panelLeft + PANEL_W - 1, panelTop + 29, 0xFF2E3547);
 
         // Заголовок и баланс.
-        gfx.drawCenteredString(this.font, this.title, this.width / 2, panelTop + 11, 0xFFFFFFFF);
-        String bal = "Баланс: " + (ClientState.balance() < 0 ? "…" : ClientState.balance()) + " DC";
-        gfx.drawString(this.font, bal, cardX(), panelTop + 38, 0xFFFFD54A, false);
+        gfx.drawCenteredString(this.font, this.title, this.width / 2, panelTop + 10, 0xFFFFFFFF);
+        String bal = (ClientState.balance() < 0 ? "…" : ClientState.balance()) + " DC";
+        gfx.drawString(this.font, bal, panelLeft + 84, panelTop + 11, 0xFFFFD54A, false);
+
+        List<ShopProduct> list = getFilteredProducts();
 
         // Карточки рисуем ДО виджетов, чтобы кнопки были поверх.
         if (loading) {
             gfx.drawCenteredString(this.font, "Загрузка магазина…", this.width / 2, panelTop + PANEL_H / 2, 0xFFCCCCCC);
-        } else if (products.isEmpty()) {
+        } else if (list.isEmpty()) {
             gfx.drawCenteredString(this.font, "Товары не найдены", this.width / 2, panelTop + PANEL_H / 2, 0xFFCCCCCC);
         } else {
-            renderCards(gfx, mouseX, mouseY);
+            renderCards(gfx, mouseX, mouseY, list);
         }
 
         super.render(gfx, mouseX, mouseY, partial);
@@ -186,17 +225,15 @@ public class ShopScreen extends Screen {
         }
     }
 
-    private void renderCards(GuiGraphics gfx, int mouseX, int mouseY) {
+    private void renderCards(GuiGraphics gfx, int mouseX, int mouseY, List<ShopProduct> list) {
         int start = page * PER_PAGE;
         int btnW = 108;
         for (int i = 0; i < PER_PAGE; i++) {
             int idx = start + i;
-            if (idx >= products.size()) break;
-            ShopProduct p = products.get(idx);
+            if (idx >= list.size()) break;
+            ShopProduct p = list.get(idx);
             int y = cardsTop() + i * (CARD_H + CARD_GAP);
 
-            // У DC-пакетов справа кнопка «Оплатить» — оставляем под неё место.
-            // У остальных текст занимает всю ширину карточки.
             int textMaxRight = p.isDcPackage()
                     ? cardX() + cardW() - btnW - 14
                     : cardX() + cardW() - 14;
@@ -204,8 +241,10 @@ public class ShopScreen extends Screen {
             boolean hover = mouseX >= cardX() && mouseX <= cardX() + cardW() && mouseY >= y && mouseY <= y + CARD_H;
             gfx.fill(cardX(), y, cardX() + cardW(), y + CARD_H, hover ? 0xFF212838 : 0xFF1B212C);
             gfx.renderOutline(cardX(), y, cardW(), CARD_H, 0xFF2E3547);
-            // Акцентная полоска слева.
-            gfx.fill(cardX(), y, cardX() + 2, y + CARD_H, 0xFF3B82F6);
+            
+            // Цветная акцентная полоска слева в зависимости от категории
+            int stripeColor = p.isPrivilege() ? 0xFFFFD700 : p.isItem() ? 0xFF3B82F6 : p.isDcPackage() ? 0xFF10B981 : 0xFFA855F7;
+            gfx.fill(cardX(), y, cardX() + 2, y + CARD_H, stripeColor);
 
             gfx.renderItem(ItemIcons.of(p.icon), cardX() + 10, y + (CARD_H - 16) / 2);
 
@@ -213,15 +252,13 @@ public class ShopScreen extends Screen {
             String name = trim(p.name, textMaxRight - textX);
             gfx.drawString(this.font, name, textX, y + 8, 0xFFFFFFFF, false);
 
-            // Подзаголовок: для DC — состав пакета, для остальных — подсказка
-            // о клике (карточка открывает экран описания с кнопкой покупки).
             String sub;
             int subColor;
             if (p.isDcPackage()) {
                 sub = "Пакет DC · +" + p.dcAmount + " DC";
                 subColor = 0xFFFFD54A;
             } else {
-                sub = "Нажмите для подробностей";
+                sub = (p.isPrivilege() ? "Привилегия" : p.isItem() ? "Предмет" : "Товар") + " · " + p.priceDc + " DC";
                 subColor = 0xFF9AA4B2;
             }
             sub = trim(sub, textMaxRight - textX);
@@ -241,22 +278,18 @@ public class ShopScreen extends Screen {
         return s + "…";
     }
 
-    /**
-     * Клик по карточке товара (кроме DC — у тех своя кнопка «Оплатить»)
-     * открывает экран подробного описания с кнопкой «Купить».
-     */
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // Сначала даём виджетам (навигация, «Оплатить» у DC) обработать клик.
         if (super.mouseClicked(mouseX, mouseY, button)) return true;
-        if (button != 0 || loading || products.isEmpty()) return false;
+        List<ShopProduct> list = getFilteredProducts();
+        if (button != 0 || loading || list.isEmpty()) return false;
 
         int start = page * PER_PAGE;
         for (int i = 0; i < PER_PAGE; i++) {
             int idx = start + i;
-            if (idx >= products.size()) break;
-            ShopProduct p = products.get(idx);
-            if (p.isDcPackage()) continue; // у DC — кнопка «Оплатить», не открываем описание
+            if (idx >= list.size()) break;
+            ShopProduct p = list.get(idx);
+            if (p.isDcPackage()) continue;
             int y = cardsTop() + i * (CARD_H + CARD_GAP);
             if (mouseX >= cardX() && mouseX <= cardX() + cardW()
                     && mouseY >= y && mouseY <= y + CARD_H) {

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
-import { Check, Coins, Copy, CreditCard, Crown, ExternalLink, LoaderCircle, Sparkles, Wallet, X } from "lucide-react"
+import { Check, Coins, Copy, CreditCard, Crown, ExternalLink, LoaderCircle, Package, Sparkles, Tag, Wallet, X } from "lucide-react"
 import type { MeResponse } from "@/components/site-header"
 import { jsonFetcher, postJson } from "@/lib/fetcher"
 import { cn } from "@/lib/utils"
@@ -11,7 +11,7 @@ import { VoteSection } from "@/components/vote/vote-section"
 
 interface Product {
   id: number
-  kind: "privilege" | "dc"
+  kind: "privilege" | "dc" | "item" | "other"
   name: string
   description: string | null
   priceRub: number
@@ -37,17 +37,27 @@ function accentCls(a: string): string {
   return ACCENT[a] ?? ACCENT.emerald
 }
 
+type CategoryTab = "all" | "privilege" | "item" | "dc" | "other"
+
 export function DonateClient() {
   const { data } = useSWR<ProductsResponse>("/api/donate/products", jsonFetcher)
   const { data: me } = useSWR<MeResponse>("/api/account/me", jsonFetcher, { shouldRetryOnError: false })
   const [buying, setBuying] = useState<{ product?: Product; customDc?: number } | null>(null)
+  const [tab, setTab] = useState<CategoryTab>("all")
 
   const privileges = data?.products.filter((p) => p.kind === "privilege") ?? []
+  const items = data?.products.filter((p) => p.kind === "item") ?? []
   const dcPacks = data?.products.filter((p) => p.kind === "dc") ?? []
+  const others = data?.products.filter((p) => p.kind === "other") ?? []
   const bonus = data?.dcBonus ?? { threshold: 250, percent: 10 }
 
+  const showPrivileges = (tab === "all" || tab === "privilege") && privileges.length > 0
+  const showItems = (tab === "all" || tab === "item") && items.length > 0
+  const showDc = tab === "all" || tab === "dc"
+  const showOthers = (tab === "all" || tab === "other") && others.length > 0
+
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 py-12">
+    <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-12">
       {/* Заголовок */}
       <div className="text-center">
         <h1 className="text-balance font-mono text-3xl font-bold md:text-4xl">Донат Polit Empire</h1>
@@ -64,58 +74,70 @@ export function DonateClient() {
         </p>
       </div>
 
-      {/* Привилегии */}
-      <section className="flex flex-col gap-6">
-        <div className="flex items-center gap-2">
-          <Crown className="size-5 text-primary" />
-          <h2 className="font-mono text-xl font-bold">Привилегии</h2>
-          <span className="text-sm text-muted-foreground">· покупка за DC · цена за 1 месяц</span>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {privileges.map((p) => (
-            <div
-              key={p.id}
-              className={cn(
-                "flex flex-col rounded-lg border bg-card p-5 transition-transform hover:-translate-y-1",
-                accentCls(p.accent),
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="font-mono text-lg font-bold text-foreground">{p.name}</h3>
-                <Crown className={cn("size-5", accentCls(p.accent))} />
-              </div>
-              <p className="mt-2 min-h-[3.5rem] text-sm leading-relaxed text-muted-foreground">{p.description}</p>
-              <div className="mt-4 flex items-baseline gap-1">
-                <span className="font-mono text-2xl font-bold text-foreground">{p.priceRub}</span>
-                <span className="text-sm text-muted-foreground">DC / мес</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBuying({ product: p })}
-                className="mt-4 rounded-md bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-              >
-                Купить за DC
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* Переключатель категорий */}
+      <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-border bg-card/50 p-1.5">
+        <button
+          type="button"
+          onClick={() => setTab("all")}
+          className={cn(
+            "rounded-md px-4 py-2 font-mono text-sm font-semibold transition-all",
+            tab === "all" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Все товары
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("privilege")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-4 py-2 font-mono text-sm font-semibold transition-all",
+            tab === "privilege" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Crown className="size-4" /> Привилегии
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("item")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-4 py-2 font-mono text-sm font-semibold transition-all",
+            tab === "item" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Package className="size-4" /> Предметы
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("dc")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-4 py-2 font-mono text-sm font-semibold transition-all",
+            tab === "dc" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Coins className="size-4" /> DC
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("other")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-4 py-2 font-mono text-sm font-semibold transition-all",
+            tab === "other" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Tag className="size-4" /> Другое
+        </button>
+      </div>
 
-      {/* Донат-коины */}
-      <section id="dc" className="flex flex-col gap-6 scroll-mt-20">
-        <div className="flex flex-wrap items-center gap-2">
-          <Coins className="size-5 text-primary" />
-          <h2 className="font-mono text-xl font-bold">Донат-коины (DC)</h2>
-          <span className="text-sm text-muted-foreground">· 1 ₽ = 1 DC</span>
-          <span className="ml-auto flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-xs text-primary">
-            <Sparkles className="size-3.5" />
-            +{bonus.percent}% от {bonus.threshold} DC
-          </span>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {dcPacks.map((p) => {
-            const packBonus = p.dcAmount >= bonus.threshold ? Math.floor((p.dcAmount * bonus.percent) / 100) : 0
-            return (
+      {/* Привилегии */}
+      {showPrivileges && (
+        <section className="flex flex-col gap-6">
+          <div className="flex items-center gap-2">
+            <Crown className="size-5 text-primary" />
+            <h2 className="font-mono text-xl font-bold">Привилегии</h2>
+            <span className="text-sm text-muted-foreground">· покупка за DC · цена за 1 месяц</span>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {privileges.map((p) => (
               <div
                 key={p.id}
                 className={cn(
@@ -124,29 +146,153 @@ export function DonateClient() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <h3 className="font-mono text-lg font-bold text-foreground">{p.dcAmount} DC</h3>
-                  <Coins className={cn("size-5", accentCls(p.accent))} />
+                  <h3 className="font-mono text-lg font-bold text-foreground">{p.name}</h3>
+                  <Crown className={cn("size-5", accentCls(p.accent))} />
                 </div>
-                {packBonus > 0 && (
-                  <p className="mt-1 font-mono text-xs text-primary">+{packBonus} DC бонус</p>
-                )}
+                <p className="mt-2 min-h-[3.5rem] text-sm leading-relaxed text-muted-foreground">{p.description}</p>
                 <div className="mt-4 flex items-baseline gap-1">
                   <span className="font-mono text-2xl font-bold text-foreground">{p.priceRub}</span>
-                  <span className="text-sm text-muted-foreground">₽</span>
+                  <span className="text-sm text-muted-foreground">DC / мес</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setBuying({ product: p })}
                   className="mt-4 rounded-md bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 >
-                  Пополнить
+                  Купить за DC
                 </button>
               </div>
-            )
-          })}
-        </div>
-        <CustomDcCard bonus={bonus} onBuy={(amount) => setBuying({ customDc: amount })} />
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Предметы */}
+      {showItems && (
+        <section className="flex flex-col gap-6">
+          <div className="flex items-center gap-2">
+            <Package className="size-5 text-primary" />
+            <h2 className="font-mono text-xl font-bold">Предметы</h2>
+            <span className="text-sm text-muted-foreground">· покупка в игру за DC</span>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {items.map((p) => (
+              <div
+                key={p.id}
+                className={cn(
+                  "flex flex-col rounded-lg border bg-card p-5 transition-transform hover:-translate-y-1",
+                  accentCls(p.accent),
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-mono text-lg font-bold text-foreground">{p.name}</h3>
+                  <Package className={cn("size-5", accentCls(p.accent))} />
+                </div>
+                <p className="mt-2 min-h-[3.5rem] text-sm leading-relaxed text-muted-foreground">{p.description}</p>
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="font-mono text-2xl font-bold text-foreground">{p.priceRub}</span>
+                  <span className="text-sm text-muted-foreground">DC</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBuying({ product: p })}
+                  className="mt-4 rounded-md bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  Купить за DC
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Донат-коины */}
+      {showDc && (
+        <section id="dc" className="flex flex-col gap-6 scroll-mt-20">
+          <div className="flex flex-wrap items-center gap-2">
+            <Coins className="size-5 text-primary" />
+            <h2 className="font-mono text-xl font-bold">Донат-коины (DC)</h2>
+            <span className="text-sm text-muted-foreground">· 1 ₽ = 1 DC</span>
+            <span className="ml-auto flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-xs text-primary">
+              <Sparkles className="size-3.5" />
+              +{bonus.percent}% от {bonus.threshold} DC
+            </span>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {dcPacks.map((p) => {
+              const packBonus = p.dcAmount >= bonus.threshold ? Math.floor((p.dcAmount * bonus.percent) / 100) : 0
+              return (
+                <div
+                  key={p.id}
+                  className={cn(
+                    "flex flex-col rounded-lg border bg-card p-5 transition-transform hover:-translate-y-1",
+                    accentCls(p.accent),
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-mono text-lg font-bold text-foreground">{p.dcAmount} DC</h3>
+                    <Coins className={cn("size-5", accentCls(p.accent))} />
+                  </div>
+                  {packBonus > 0 && (
+                    <p className="mt-1 font-mono text-xs text-primary">+{packBonus} DC бонус</p>
+                  )}
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="font-mono text-2xl font-bold text-foreground">{p.priceRub}</span>
+                    <span className="text-sm text-muted-foreground">₽</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBuying({ product: p })}
+                    className="mt-4 rounded-md bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                  >
+                    Пополнить
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <CustomDcCard bonus={bonus} onBuy={(amount) => setBuying({ customDc: amount })} />
+        </section>
+      )}
+
+      {/* Другое */}
+      {showOthers && (
+        <section className="flex flex-col gap-6">
+          <div className="flex items-center gap-2">
+            <Tag className="size-5 text-primary" />
+            <h2 className="font-mono text-xl font-bold">Другое</h2>
+            <span className="text-sm text-muted-foreground">· дополнительные услуги</span>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {others.map((p) => (
+              <div
+                key={p.id}
+                className={cn(
+                  "flex flex-col rounded-lg border bg-card p-5 transition-transform hover:-translate-y-1",
+                  accentCls(p.accent),
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-mono text-lg font-bold text-foreground">{p.name}</h3>
+                  <Tag className={cn("size-5", accentCls(p.accent))} />
+                </div>
+                <p className="mt-2 min-h-[3.5rem] text-sm leading-relaxed text-muted-foreground">{p.description}</p>
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="font-mono text-2xl font-bold text-foreground">{p.priceRub}</span>
+                  <span className="text-sm text-muted-foreground">DC</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBuying({ product: p })}
+                  className="mt-4 rounded-md bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  Купить за DC
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Бонусы за голос на мониторингах */}
       <section id="vote" className="scroll-mt-20">

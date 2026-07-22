@@ -229,6 +229,7 @@ _MIGRATIONS = [
     CREATE TABLE IF NOT EXISTS bot_play_sessions (
         mc_username VARCHAR(80) PRIMARY KEY,
         joined_at DATETIME NOT NULL,
+        last_ticked_at DATETIME DEFAULT NULL,
         ip VARCHAR(45) DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
@@ -271,7 +272,7 @@ async def _migrate() -> None:
                     if errno == 1142:
                         table = _table_name(sql)
                         if await _table_exists(conn, table):
-                            # Таблица уже создана вручную (schema.sql) ��� пропуска��м.
+                            # Таблица уже создана вручную (schema.sql) — пропускаем.
                             continue
                         raise RuntimeError(
                             f"У пользователя БД '{config.DB_USER}' нет права CREATE, "

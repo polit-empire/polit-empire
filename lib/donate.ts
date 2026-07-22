@@ -7,7 +7,7 @@ import { rconExec } from "@/lib/rcon"
 
 export interface DonateProduct {
   id: number
-  kind: "privilege" | "dc" | "item"
+  kind: "privilege" | "dc" | "item" | "other"
   name: string
   description: string | null
   price_rub: number
@@ -319,10 +319,8 @@ export async function deliverOrder(
   } else if (order.kind === "dc") {
     const tmpl = await getSetting("dc_rcon_template", "dc give {nick} {amount}")
     commands.push(fillTemplate(tmpl, { nick: order.minecraft_nick, amount: order.dc_amount }))
-  } else if (order.kind === "item") {
-    // Предмет за DC: выдаём командой из товара. Если у товара задан
-    // rcon_command — используем его как полный шаблон (fill {nick}); иначе
-    // берём общий шаблон item_rcon_template с {item} из icon_item товара.
+  } else if (order.kind === "item" || order.kind === "other") {
+    // Предмет или Другое: выдаём командой из товара.
     const product = order.product_id ? await getProduct(order.product_id) : null
     let tmpl = product?.rcon_command || ""
     const vars: Record<string, string | number> = {
@@ -330,12 +328,15 @@ export async function deliverOrder(
       item: product?.icon_item ?? "minecraft:stone",
       count: 1,
       amount: order.dc_amount,
+      group: product?.group_name ?? "",
+      days: product?.duration_days ?? 0,
     }
-    if (!tmpl) {
+    if (!tmpl && order.kind === "item") {
       tmpl = await getSetting("item_rcon_template", "give {nick} {item} {count}")
     }
-    if (!tmpl) throw new Error("У товара не задана команда выдачи предмета")
-    commands.push(fillTemplate(tmpl, vars))
+    if (tmpl) {
+      commands.push(fillTemplate(tmpl, vars))
+    }
   }
 
   // skipRcon: выдачу в игре делает внешняя система (например плагин

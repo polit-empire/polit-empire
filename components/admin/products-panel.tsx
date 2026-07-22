@@ -96,7 +96,7 @@ export function ProductsPanel() {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-foreground">{p.name}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-                    {p.kind === "dc" ? "DC" : p.kind === "item" ? "предмет" : "прив"}
+                    {p.kind === "dc" ? "DC" : p.kind === "item" ? "предмет" : p.kind === "other" ? "другое" : "прив"}
                   </span>
                   {p.is_active === 0 && (
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">скрыт</span>
@@ -105,8 +105,8 @@ export function ProductsPanel() {
                 <p className="truncate text-xs text-muted-foreground">
                   {p.kind === "privilege"
                     ? `${p.price_rub} DC · ${p.group_name} · ${p.duration_days}д`
-                    : p.kind === "item"
-                      ? `${p.price_rub} DC · ${p.icon_item || "предмет"}`
+                    : p.kind === "item" || p.kind === "other"
+                      ? `${p.price_rub} DC · ${p.icon_item || "товар"}`
                       : `${p.price_rub}₽ · ${p.dc_amount} DC`}
                 </p>
               </div>
@@ -147,11 +147,12 @@ export function ProductsPanel() {
               <Field label="Тип">
                 <Select
                   value={draft.kind}
-                  onChange={(e) => set("kind", e.target.value as "privilege" | "dc" | "item")}
+                  onChange={(e) => set("kind", e.target.value as "privilege" | "dc" | "item" | "other")}
                 >
                   <option value="privilege">Привилегия</option>
-                  <option value="dc">Пакет DC</option>
                   <option value="item">Предмет (за DC)</option>
+                  <option value="dc">Пакет DC</option>
+                  <option value="other">Другое</option>
                 </Select>
               </Field>
               <Field label="Название">

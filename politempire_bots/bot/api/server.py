@@ -60,9 +60,11 @@ async def handle_player_join(request: web.Request) -> web.Response:
     )
 
     # Открываем игровую сессию (перезапись, если предыдущая не закрыта)
+    # Открываем игровую сессию (перезапись, если предыдущая не закрыта)
     await db.execute(
-        "INSERT INTO bot_play_sessions (mc_username, joined_at, ip) VALUES (%s, UTC_TIMESTAMP(), %s) "
-        "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
+        "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
+        "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
+        "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
         (username, ip),
     )
 
@@ -104,17 +106,22 @@ async def handle_2fa_verify(request: web.Request) -> web.Response:
 
 async def _close_session(username: str) -> None:
     session = await db.fetchone(
-        "SELECT joined_at FROM bot_play_sessions WHERE mc_username=%s", (username,)
+        "SELECT joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at "
+        "FROM bot_play_sessions WHERE mc_username=%s", (username,)
     )
     if not session:
         return
-    seconds = int((datetime.utcnow() - session["joined_at"]).total_seconds())
+    now = datetime.utcnow()
+    total_session = int((now - session["joined_at"]).total_seconds())
+    unticked = int((now - session["ticked_at"]).total_seconds())
+
     await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
-    if seconds > 0:
-        capped = min(seconds, 24 * 3600)
-        await _add_playtime(username, capped)
+    if total_session > 0:
+        capped = min(total_session, 24 * 3600)
+        if unticked > 0:
+            await _add_playtime(username, unticked)
+            await referrals.add_playtime(username, unticked)
         await _update_session_stats(username, capped)
-        await referrals.add_playtime(username, capped)
 
 
 async def handle_player_quit(request: web.Request) -> web.Response:
@@ -154,6 +161,20 @@ async def _update_session_stats(username: str, session_seconds: int) -> None:
     )
 
 
+async def _update_live_session_stats(username: str, live_session_seconds: int) -> None:
+    """Обновляет лучшую и последнюю сессию для АКТИВНОЙ сессии (не увеличивая session_count)."""
+    if live_session_seconds <= 0:
+        return
+    await db.execute(
+        "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
+        "VALUES (%s, 0, %s, %s) "
+        "ON DUPLICATE KEY UPDATE "
+        "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
+        "last_session_seconds = VALUES(last_session_seconds)",
+        (username, live_session_seconds, live_session_seconds),
+    )
+
+
 async def handle_player_playtime(request: web.Request) -> web.Response:
     """GET /api/player/playtime?username=... -> {"playtime_seconds": N, "session_count": N, "longest_session_seconds": N, "last_session_seconds": N}"""
     username = (request.query.get("username") or "").strip()
@@ -165,17 +186,30 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
     )
     # Учитываем также время текущей незакрытой сессии
     session = await db.fetchone(
-        "SELECT joined_at FROM bot_play_sessions WHERE mc_username=%s", (username,)
+        "SELECT joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at FROM bot_play_sessions WHERE mc_username=%s", (username,)
     )
-    live = 0
+    live_secs = 0
+    unticked_secs = 0
     if session:
-        live = int((datetime.utcnow() - session["joined_at"]).total_seconds())
-    total = (row["total_seconds"] if row else 0) + max(0, live)
+        now = datetime.utcnow()
+        live_secs = max(0, int((now - session["joined_at"]).total_seconds()))
+        unticked_secs = max(0, int((now - session["ticked_at"]).total_seconds()))
+
+    stored_total = row["total_seconds"] if row else 0
+    stored_count = row["session_count"] if row else 0
+    stored_longest = row["longest_session_seconds"] if row else 0
+    stored_last = row["last_session_seconds"] if row else 0
+
+    total = stored_total + unticked_secs
+    count = stored_count + (1 if session else 0)
+    longest = max(stored_longest, live_secs) if session else stored_longest
+    last = live_secs if session else stored_last
+
     return web.json_response({
         "playtime_seconds": total,
-        "session_count": row["session_count"] if row else 0,
-        "longest_session_seconds": row["longest_session_seconds"] if row else 0,
-        "last_session_seconds": row["last_session_seconds"] if row else 0,
+        "session_count": count,
+        "longest_session_seconds": longest,
+        "last_session_seconds": last,
     })
 
 
@@ -198,15 +232,21 @@ async def _playtime_ticker() -> None:
     while True:
         await asyncio.sleep(TICK_SECONDS)
         try:
-            sessions = await db.fetchall("SELECT mc_username FROM bot_play_sessions")
+            sessions = await db.fetchall(
+                "SELECT mc_username, joined_at, COALESCE(last_ticked_at, joined_at) AS ticked_at FROM bot_play_sessions"
+            )
+            now = datetime.utcnow()
             for s in sessions:
-                # Сдвигаем joined_at вперёд и засчитываем тик — идемпотентно
+                delta = max(0, int((now - s["ticked_at"]).total_seconds()))
+                live_secs = max(0, int((now - s["joined_at"]).total_seconds()))
                 await db.execute(
-                    "UPDATE bot_play_sessions SET joined_at=UTC_TIMESTAMP() WHERE mc_username=%s",
+                    "UPDATE bot_play_sessions SET last_ticked_at=UTC_TIMESTAMP() WHERE mc_username=%s",
                     (s["mc_username"],),
                 )
-                await _add_playtime(s["mc_username"], TICK_SECONDS)
-                await referrals.add_playtime(s["mc_username"], TICK_SECONDS)
+                if delta > 0:
+                    await _add_playtime(s["mc_username"], delta)
+                    await referrals.add_playtime(s["mc_username"], delta)
+                await _update_live_session_stats(s["mc_username"], live_secs)
         except Exception:
             log.exception("playtime ticker error")
 

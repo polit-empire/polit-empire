@@ -17,4 +17,16 @@ public class ShopProduct {
     public boolean isDcPackage() {
         return "dc".equals(kind);
     }
+
+    public boolean isPrivilege() {
+        return "privilege".equals(kind);
+    }
+
+    public boolean isItem() {
+        return "item".equals(kind);
+    }
+
+    public boolean isOther() {
+        return "other".equals(kind);
+    }
 }
