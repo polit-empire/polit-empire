@@ -415,11 +415,13 @@ function PurchaseModal({
   } | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const isPrivilege = product?.kind === "privilege"
+  const isDcPurchase = Boolean(
+    product && (product.kind === "privilege" || product.kind === "item" || product.kind === "other")
+  )
   const title = product ? product.name : `Пополнение ${customDc} DC`
   const priceRub = product ? product.priceRub : customDc ?? 0
   const costDc = product?.priceRub ?? 0
-  const notEnough = isPrivilege && balance < costDc
+  const notEnough = isDcPurchase && balance < costDc
 
   async function buy(method: "mydonate" | "easydonate" | "millida" | "donatello" | "dc") {
     setErr(null)
@@ -472,7 +474,13 @@ function PurchaseModal({
           <div>
             <h3 className="font-mono text-lg font-bold">{title}</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isPrivilege ? `Привилегия на ${product?.durationDays} дней` : "Пополнение донат-коинов"}
+              {product?.kind === "privilege"
+                ? `Привилегия на ${product.durationDays} дней`
+                : product?.kind === "item"
+                  ? "Покупка предмета в игру"
+                  : product?.kind === "other"
+                    ? "Покупка услуги"
+                    : "Пополнение донат-коинов"}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Закрыть" className="text-muted-foreground hover:text-foreground">
@@ -570,7 +578,7 @@ function PurchaseModal({
           )
         ) : (
           <div className="mt-6 flex flex-col gap-3">
-            {isPrivilege ? (
+            {isDcPurchase ? (
               <>
                 <div className="mb-1 flex items-baseline justify-between border-b border-border pb-3">
                   <span className="text-sm text-muted-foreground">Стоимость</span>
