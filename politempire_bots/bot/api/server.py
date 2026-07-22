@@ -157,10 +157,12 @@ async def _add_playtime(username: str, seconds: int) -> None:
     """Добавляет секунды в общее наигранное время игрока (bot_playtime)."""
     if seconds <= 0:
         return
+    sec = int(seconds)
     await db.execute(
-        "INSERT INTO bot_playtime (mc_username, total_seconds) VALUES (%s, %s) "
+        "INSERT INTO bot_playtime (mc_username, total_seconds, session_count, longest_session_seconds, last_session_seconds) "
+        "VALUES (%s, %s, 0, 0, 0) "
         "ON DUPLICATE KEY UPDATE total_seconds = total_seconds + VALUES(total_seconds)",
-        (username, int(seconds)),
+        (username, sec),
     )
 
 
@@ -168,8 +170,8 @@ async def _update_session_stats(username: str, session_seconds: int) -> None:
     """Обновляет статистику сессий: количество, лучшая, последняя."""
     sec = int(session_seconds)
     await db.execute(
-        "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
-        "VALUES (%s, 1, %s, %s) "
+        "INSERT INTO bot_playtime (mc_username, total_seconds, session_count, longest_session_seconds, last_session_seconds) "
+        "VALUES (%s, 0, 1, %s, %s) "
         "ON DUPLICATE KEY UPDATE "
         "session_count = session_count + 1, "
         "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
@@ -184,8 +186,8 @@ async def _update_live_session_stats(username: str, live_session_seconds: int) -
     if sec <= 0:
         return
     await db.execute(
-        "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
-        "VALUES (%s, 0, %s, %s) "
+        "INSERT INTO bot_playtime (mc_username, total_seconds, session_count, longest_session_seconds, last_session_seconds) "
+        "VALUES (%s, 0, 0, %s, %s) "
         "ON DUPLICATE KEY UPDATE "
         "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
         "last_session_seconds = VALUES(last_session_seconds)",
