@@ -60,10 +60,18 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
         }
 
         // Наигранное время
+        // params = всё после "botlink_", например "playtime_hours" или просто "playtime"
+        String key = params.toLowerCase();
+        // Убираем префикс "playtime_" если есть, чтобы switch работал и для
+        // %botlink_playtime_hours% (params="playtime_hours") и для %botlink_hours% (params="hours")
+        if (key.startsWith("playtime_")) {
+            key = key.substring("playtime_".length()); // "hours", "seconds", "minutes", ...
+        }
+
         int seconds = pm.getPlaytimeSeconds(player);
 
-        return switch (params.toLowerCase()) {
-            case "", "playtime", "formatted" -> pm.getPlaytimeFormatted(player);
+        return switch (key) {
+            case "playtime", "formatted", "" -> pm.getPlaytimeFormatted(player);
             case "seconds"       -> String.valueOf(seconds);
             case "hours"         -> String.valueOf(seconds / 3600);
             case "minutes"       -> String.valueOf((seconds % 3600) / 60);
