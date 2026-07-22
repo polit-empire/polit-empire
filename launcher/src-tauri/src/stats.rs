@@ -218,12 +218,30 @@ pub fn finish_session() {
 /// игрока по нику из JWT-токена.
 #[tauri::command]
 pub async fn get_playtime_stats() -> PlaytimeStats {
+    let local = load_stats();
     // Пытаемся получить реальный плейтайм с сервера.
-    if let Some(server_stats) = fetch_server_playtime().await {
+    if let Some(mut server_stats) = fetch_server_playtime().await {
+        // Объединяем серверную статистику и локальный кэш (берём максимум),
+        // чтобы нулевые/неполные данные сервера не обнуляли локальный прогресс.
+        if local.total_seconds > server_stats.total_seconds {
+            server_stats.total_seconds = local.total_seconds;
+        }
+        if local.session_count > server_stats.session_count {
+            server_stats.session_count = local.session_count;
+        }
+        if local.longest_session_seconds > server_stats.longest_session_seconds {
+            server_stats.longest_session_seconds = local.longest_session_seconds;
+        }
+        if server_stats.last_played_unix == 0 {
+            server_stats.last_played_unix = local.last_played_unix;
+        }
+
+        // Сохраняем актуальный максимум в локальный подписанный кэш
+        persist_stats(&server_stats);
         return server_stats;
     }
     // Сервер недоступен — отдаём локальный кэш (подписанный файл на диске).
-    load_stats()
+    local
 }
 
 /// Запрашивает наигранное время у bot API.

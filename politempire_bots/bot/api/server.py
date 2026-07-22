@@ -59,8 +59,8 @@ async def handle_player_join(request: web.Request) -> web.Response:
         (username, ip),
     )
 
-    # Открываем игровую сессию (перезапись, если предыдущая не закрыта)
-    # Открываем игровую сессию (перезапись, если предыдущая не закрыта)
+    # Открываем игровую сессию (сначала закрываем старую, если не была закрыта)
+    await _close_session(username)
     await db.execute(
         "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
         "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "

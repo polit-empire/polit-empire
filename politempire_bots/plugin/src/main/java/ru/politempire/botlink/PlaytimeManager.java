@@ -41,8 +41,11 @@ public final class PlaytimeManager {
     private final String baseUrl;
     private final String secret;
 
-    /** Локальное время старта сессии по UUID (для расчёта "живого" времени). */
+    /** Локальное время старта сессии по UUID (для расчёта времени до первой успешной синхронизации). */
     private final Map<UUID, Long> sessionStart = new ConcurrentHashMap<>();
+
+    /** Время последнего успешного ответа от bot API (System.currentTimeMillis()). */
+    private final Map<String, Long> lastFetchTime = new ConcurrentHashMap<>();
 
     /** Кэш наигранного времени (секунды) по нику игрока. */
     private final Map<String, Integer> playtimeCache = new ConcurrentHashMap<>();
@@ -81,28 +84,47 @@ public final class PlaytimeManager {
     void onJoin(Player player) {
         sessionStart.put(player.getUniqueId(), System.currentTimeMillis());
         // Сразу тянем актуальный плейтайм и DC с бота
-        fetchPlaytimeAsync(player.getName()).thenAccept(secs ->
+        fetchPlaytimeAsync(player.getName()).thenAccept(secs -> {
+            if (secs >= 0) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    playtimeCache.put(player.getName(), secs);
+                    lastFetchTime.put(player.getName(), System.currentTimeMillis());
+                });
+            }
+        });
+        fetchBalanceAsync(player.getName()).thenAccept(dc -> {
+            if (dc >= 0) {
                 plugin.getServer().getScheduler().runTask(plugin, () ->
-                        playtimeCache.put(player.getName(), secs)));
-        fetchBalanceAsync(player.getName()).thenAccept(dc ->
-                plugin.getServer().getScheduler().runTask(plugin, () ->
-                        dcCache.put(player.getName(), dc)));
+                        dcCache.put(player.getName(), dc));
+            }
+        });
     }
 
     /** Вызывается при выходе игрока (из PlayerListener). */
     void onQuit(Player player) {
         sessionStart.remove(player.getUniqueId());
         playtimeCache.remove(player.getName());
+        lastFetchTime.remove(player.getName());
         dcCache.remove(player.getName());
     }
 
     /** Фоновый тик: каждые 30 сек обновляет кэш для онлайн-игроков. */
     void tick() {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
-            fetchPlaytimeAsync(p.getName()).thenAccept(secs ->
-                    playtimeCache.put(p.getName(), secs));
-            fetchBalanceAsync(p.getName()).thenAccept(dc ->
-                    dcCache.put(p.getName(), dc));
+            fetchPlaytimeAsync(p.getName()).thenAccept(secs -> {
+                if (secs >= 0) {
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        playtimeCache.put(p.getName(), secs);
+                        lastFetchTime.put(p.getName(), System.currentTimeMillis());
+                    });
+                }
+            });
+            fetchBalanceAsync(p.getName()).thenAccept(dc -> {
+                if (dc >= 0) {
+                    plugin.getServer().getScheduler().runTask(plugin, () ->
+                            dcCache.put(p.getName(), dc));
+                }
+            });
         }
     }
 
@@ -110,14 +132,22 @@ public final class PlaytimeManager {
 
     /**
      * Наигранное время игрока в секундах (из кэша, мгновенно).
-     * Если игрок онлайн — включает время текущей сессии.
+     * Если игрок онлайн — включает время текущей сессии с момента последней синхронизации.
      * @return секунд, или 0 если данных нет.
      */
     public int getPlaytimeSeconds(Player player) {
         int cached = playtimeCache.getOrDefault(player.getName(), 0);
-        long sessionMs = sessionStart.getOrDefault(player.getUniqueId(), 0L);
-        if (sessionMs > 0) {
-            cached += (int) ((System.currentTimeMillis() - sessionMs) / 1000);
+        long fetchMs = lastFetchTime.getOrDefault(player.getName(), 0L);
+        if (fetchMs > 0) {
+            long elapsedSecs = (System.currentTimeMillis() - fetchMs) / 1000;
+            if (elapsedSecs > 0) {
+                cached += (int) elapsedSecs;
+            }
+        } else {
+            long sessionMs = sessionStart.getOrDefault(player.getUniqueId(), 0L);
+            if (sessionMs > 0) {
+                cached += (int) ((System.currentTimeMillis() - sessionMs) / 1000);
+            }
         }
         return cached;
     }
@@ -143,7 +173,7 @@ public final class PlaytimeManager {
 
     /**
      * Асинхронный запрос плейтайма к bot API.
-     * @return CompletableFuture<Integer> — секунды (0 при ошибке).
+     * @return CompletableFuture<Integer> — секунды (-1 при ошибке).
      */
     public CompletableFuture<Integer> fetchPlaytimeAsync(String username) {
         HttpRequest req = HttpRequest.newBuilder()
@@ -156,7 +186,7 @@ public final class PlaytimeManager {
         return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .handle((resp, err) -> {
                     if (err != null || resp == null || resp.statusCode() != 200) {
-                        return 0;
+                        return -1;
                     }
                     return parsePlaytime(resp.body());
                 });
@@ -178,7 +208,7 @@ public final class PlaytimeManager {
 
     /**
      * Асинхронный запрос DC-баланса к bot API.
-     * @return CompletableFuture<Integer> — баланс (0 при ошибке).
+     * @return CompletableFuture<Integer> — баланс (-1 при ошибке).
      */
     public CompletableFuture<Integer> fetchBalanceAsync(String username) {
         HttpRequest req = HttpRequest.newBuilder()
@@ -191,7 +221,7 @@ public final class PlaytimeManager {
         return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .handle((resp, err) -> {
                     if (err != null || resp == null || resp.statusCode() != 200) {
-                        return 0;
+                        return -1;
                     }
                     return parseBalance(resp.body());
                 });
