@@ -45,48 +45,52 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def handle_player_join(request: web.Request) -> web.Response:
-    data = await request.json()
-    username = (data.get("username") or "").strip()
-    ip = data.get("ip")
-    if not username:
-        return web.json_response({"error": "username required"}, status=400)
+    try:
+        data = await request.json()
+        username = (data.get("username") or "").strip()
+        ip = data.get("ip")
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
 
-    user = await users.get_by_username(username)
+        user = await users.get_by_username(username)
 
-    # Журнал входа
-    await db.execute(
-        "INSERT INTO bot_auth_log (mc_username, event, ip, success) VALUES (%s, 'join', %s, 1)",
-        (username, ip),
-    )
+        # Журнал входа
+        await db.execute(
+            "INSERT INTO bot_auth_log (mc_username, event, ip, success) VALUES (%s, 'join', %s, 1)",
+            (username, ip),
+        )
 
-    # Открываем игровую сессию (сначала закрываем старую, если не была закрыта)
-    await _close_session(username)
-    await db.execute(
-        "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
-        "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
-        "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
-        (username, ip),
-    )
+        # Открываем игровую сессию (сначала закрываем старую, если не была закрыта)
+        await _close_session(username)
+        await db.execute(
+            "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
+            "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
+            "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
+            (username, ip),
+        )
 
-    if user and user.get("is_banned"):
-        return web.json_response({"require_2fa": False, "banned": True,
-                                  "reason": user.get("ban_reason") or ""})
+        if user and user.get("is_banned"):
+            return web.json_response({"require_2fa": False, "banned": True,
+                                      "reason": user.get("ban_reason") or ""})
 
-    # 2FA
-    require = False
-    if user and await twofa.is_enabled_for_user(user["minecraft_nick"]):
-        if user.get("telegram_id"):
-            code = await twofa.create_code(user["minecraft_nick"])
-            sent = await notify.send_2fa_code(
-                user["telegram_id"], username, code, config.TWOFA_CODE_TTL
-            )
-            require = sent
-            if not sent:
-                log.error("Could not deliver 2FA code to %s", username)
-        else:
-            log.warning("2FA enabled for %s but no telegram_id", username)
+        # 2FA
+        require = False
+        if user and await twofa.is_enabled_for_user(user["minecraft_nick"]):
+            if user.get("telegram_id"):
+                code = await twofa.create_code(user["minecraft_nick"])
+                sent = await notify.send_2fa_code(
+                    user["telegram_id"], username, code, config.TWOFA_CODE_TTL
+                )
+                require = sent
+                if not sent:
+                    log.error("Could not deliver 2FA code to %s", username)
+            else:
+                log.warning("2FA enabled for %s but no telegram_id", username)
 
-    return web.json_response({"require_2fa": require, "banned": False})
+        return web.json_response({"require_2fa": require, "banned": False})
+    except Exception:
+        log.exception("Error in handle_player_join")
+        return web.json_response({"error": "internal server error"}, status=500)
 
 
 async def handle_2fa_verify(request: web.Request) -> web.Response:
@@ -105,37 +109,48 @@ async def handle_2fa_verify(request: web.Request) -> web.Response:
 
 
 async def _close_session(username: str) -> None:
-    session = await db.fetchone(
-        "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
-        "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
-        "UNIX_TIMESTAMP() AS now_ts "
-        "FROM bot_play_sessions WHERE mc_username=%s", (username,)
-    )
-    if not session:
-        return
-    total_session = max(0, session["now_ts"] - session["joined_ts"])
-    unticked = max(0, session["now_ts"] - session["ticked_ts"])
+    try:
+        session = await db.fetchone(
+            "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
+            "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
+            "UNIX_TIMESTAMP() AS now_ts "
+            "FROM bot_play_sessions WHERE mc_username=%s", (username,)
+        )
+        if not session:
+            return
+        now_ts = int(session["now_ts"]) if session.get("now_ts") is not None else 0
+        joined_ts = int(session["joined_ts"]) if session.get("joined_ts") is not None else now_ts
+        ticked_ts = int(session["ticked_ts"]) if session.get("ticked_ts") is not None else joined_ts
 
-    await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
-    if total_session > 0:
-        capped = min(total_session, 24 * 3600)
-        if unticked > 0:
-            await _add_playtime(username, unticked)
-            await referrals.add_playtime(username, unticked)
-        await _update_session_stats(username, capped)
+        total_session = max(0, now_ts - joined_ts)
+        unticked = max(0, now_ts - ticked_ts)
+
+        await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
+        if total_session > 0:
+            capped = min(total_session, 24 * 3600)
+            if unticked > 0:
+                await _add_playtime(username, unticked)
+                await referrals.add_playtime(username, unticked)
+            await _update_session_stats(username, capped)
+    except Exception:
+        log.exception("Error closing session for %s", username)
 
 
 async def handle_player_quit(request: web.Request) -> web.Response:
-    data = await request.json()
-    username = (data.get("username") or "").strip()
-    if not username:
-        return web.json_response({"error": "username required"}, status=400)
-    await db.execute(
-        "INSERT INTO bot_auth_log (mc_username, event, success) VALUES (%s, 'quit', 1)",
-        (username,),
-    )
-    await _close_session(username)
-    return web.json_response({"ok": True})
+    try:
+        data = await request.json()
+        username = (data.get("username") or "").strip()
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
+        await db.execute(
+            "INSERT INTO bot_auth_log (mc_username, event, success) VALUES (%s, 'quit', 1)",
+            (username,),
+        )
+        await _close_session(username)
+        return web.json_response({"ok": True})
+    except Exception:
+        log.exception("Error handling player quit")
+        return web.json_response({"error": "internal server error"}, status=500)
 
 
 async def _add_playtime(username: str, seconds: int) -> None:
@@ -145,12 +160,13 @@ async def _add_playtime(username: str, seconds: int) -> None:
     await db.execute(
         "INSERT INTO bot_playtime (mc_username, total_seconds) VALUES (%s, %s) "
         "ON DUPLICATE KEY UPDATE total_seconds = total_seconds + VALUES(total_seconds)",
-        (username, seconds),
+        (username, int(seconds)),
     )
 
 
 async def _update_session_stats(username: str, session_seconds: int) -> None:
     """Обновляет статистику сессий: количество, лучшая, последняя."""
+    sec = int(session_seconds)
     await db.execute(
         "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
         "VALUES (%s, 1, %s, %s) "
@@ -158,13 +174,14 @@ async def _update_session_stats(username: str, session_seconds: int) -> None:
         "session_count = session_count + 1, "
         "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
         "last_session_seconds = VALUES(last_session_seconds)",
-        (username, session_seconds, session_seconds),
+        (username, sec, sec),
     )
 
 
 async def _update_live_session_stats(username: str, live_session_seconds: int) -> None:
     """Обновляет лучшую и последнюю сессию для АКТИВНОЙ сессии (не увеличивая session_count)."""
-    if live_session_seconds <= 0:
+    sec = int(live_session_seconds)
+    if sec <= 0:
         return
     await db.execute(
         "INSERT INTO bot_playtime (mc_username, session_count, longest_session_seconds, last_session_seconds) "
@@ -172,60 +189,53 @@ async def _update_live_session_stats(username: str, live_session_seconds: int) -
         "ON DUPLICATE KEY UPDATE "
         "longest_session_seconds = GREATEST(longest_session_seconds, VALUES(longest_session_seconds)), "
         "last_session_seconds = VALUES(last_session_seconds)",
-        (username, live_session_seconds, live_session_seconds),
+        (username, sec, sec),
     )
 
 
 async def handle_player_playtime(request: web.Request) -> web.Response:
     """GET /api/player/playtime?username=... -> {"playtime_seconds": N, "session_count": N, "longest_session_seconds": N, "last_session_seconds": N}"""
-    username = (request.query.get("username") or "").strip()
-    if not username:
-        return web.json_response({"error": "username required"}, status=400)
-    row = await db.fetchone(
-        "SELECT total_seconds, session_count, longest_session_seconds, last_session_seconds "
-        "FROM bot_playtime WHERE mc_username=%s", (username,)
-    )
-    # Учитываем также время текущей незакрытой сессии
-    session = await db.fetchone(
-        "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
-        "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
-        "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions WHERE mc_username=%s", (username,)
-    )
-    live_secs = 0
-    unticked_secs = 0
-    if session:
-        live_secs = max(0, session["now_ts"] - session["joined_ts"])
-        unticked_secs = max(0, session["now_ts"] - session["ticked_ts"])
+    try:
+        username = (request.query.get("username") or "").strip()
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
+        row = await db.fetchone(
+            "SELECT total_seconds, session_count, longest_session_seconds, last_session_seconds "
+            "FROM bot_playtime WHERE mc_username=%s", (username,)
+        )
+        session = await db.fetchone(
+            "SELECT UNIX_TIMESTAMP(joined_at) AS joined_ts, "
+            "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
+            "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions WHERE mc_username=%s", (username,)
+        )
+        live_secs = 0
+        unticked_secs = 0
+        if session:
+            now_ts = int(session["now_ts"]) if session.get("now_ts") is not None else 0
+            joined_ts = int(session["joined_ts"]) if session.get("joined_ts") is not None else now_ts
+            ticked_ts = int(session["ticked_ts"]) if session.get("ticked_ts") is not None else joined_ts
+            live_secs = max(0, now_ts - joined_ts)
+            unticked_secs = max(0, now_ts - ticked_ts)
 
-    stored_total = row["total_seconds"] if row else 0
-    stored_count = row["session_count"] if row else 0
-    stored_longest = row["longest_session_seconds"] if row else 0
-    stored_last = row["last_session_seconds"] if row else 0
+        stored_total = int(row["total_seconds"]) if row and row.get("total_seconds") is not None else 0
+        stored_count = int(row["session_count"]) if row and row.get("session_count") is not None else 0
+        stored_longest = int(row["longest_session_seconds"]) if row and row.get("longest_session_seconds") is not None else 0
+        stored_last = int(row["last_session_seconds"]) if row and row.get("last_session_seconds") is not None else 0
 
-    total = stored_total + unticked_secs
-    count = stored_count + (1 if session else 0)
-    longest = max(stored_longest, live_secs) if session else stored_longest
-    last = live_secs if session else stored_last
+        total = stored_total + unticked_secs
+        count = stored_count + (1 if session else 0)
+        longest = max(stored_longest, live_secs) if session else stored_longest
+        last = live_secs if session else stored_last
 
-    return web.json_response({
-        "playtime_seconds": total,
-        "session_count": count,
-        "longest_session_seconds": longest,
-        "last_session_seconds": last,
-    })
-
-
-async def handle_player_balance(request: web.Request) -> web.Response:
-    """GET /api/player/balance?username=... -> {"balance": 100}"""
-    username = (request.query.get("username") or "").strip()
-    if not username:
-        return web.json_response({"error": "username required"}, status=400)
-    row = await db.fetchone(
-        "SELECT COALESCE(SUM(amount), 0) AS bal FROM bot_balance_log WHERE mc_username=%s",
-        (username,),
-    )
-    balance = row["bal"] if row else 0
-    return web.json_response({"balance": int(balance)})
+        return web.json_response({
+            "playtime_seconds": total,
+            "session_count": count,
+            "longest_session_seconds": longest,
+            "last_session_seconds": last,
+        })
+    except Exception:
+        log.exception("Error handling player playtime")
+        return web.json_response({"error": "internal server error"}, status=500)
 
 
 async def _playtime_ticker() -> None:
@@ -240,11 +250,14 @@ async def _playtime_ticker() -> None:
                 "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions"
             )
             for s in sessions:
-                delta = max(0, s["now_ts"] - s["ticked_ts"])
-                live_secs = max(0, s["now_ts"] - s["joined_ts"])
+                now_ts = int(s["now_ts"]) if s.get("now_ts") is not None else 0
+                joined_ts = int(s["joined_ts"]) if s.get("joined_ts") is not None else now_ts
+                ticked_ts = int(s["ticked_ts"]) if s.get("ticked_ts") is not None else joined_ts
+                delta = max(0, now_ts - ticked_ts)
+                live_secs = max(0, now_ts - joined_ts)
                 await db.execute(
                     "UPDATE bot_play_sessions SET last_ticked_at=FROM_UNIXTIME(%s) WHERE mc_username=%s",
-                    (s["now_ts"], s["mc_username"]),
+                    (now_ts, s["mc_username"]),
                 )
                 if delta > 0:
                     await _add_playtime(s["mc_username"], delta)
