@@ -238,6 +238,23 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
         return web.json_response({"error": "internal server error"}, status=500)
 
 
+async def handle_player_balance(request: web.Request) -> web.Response:
+    """GET /api/player/balance?username=... -> {"balance": 100}"""
+    try:
+        username = (request.query.get("username") or "").strip()
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
+        row = await db.fetchone(
+            "SELECT COALESCE(SUM(amount), 0) AS bal FROM bot_balance_log WHERE mc_username=%s",
+            (username,),
+        )
+        balance = row["bal"] if row else 0
+        return web.json_response({"balance": int(balance)})
+    except Exception:
+        log.exception("Error handling player balance")
+        return web.json_response({"error": "internal server error"}, status=500)
+
+
 async def _playtime_ticker() -> None:
     """Каждые 10 секунд добавляет время открытым сессиям, чтобы порог 10 минут
     срабатывал без ожидания выхода игрока."""
