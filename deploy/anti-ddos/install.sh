@@ -32,6 +32,9 @@ echo "==> 1. Установка nginx anti-DDoS конфигов"
 install -m 0644 "$DEPLOY_DIR/anti-ddos/nginx/00-antiddos.conf" /etc/nginx/conf.d/00-antiddos.conf
 mkdir -p /etc/nginx/snippets
 install -m 0644 "$DEPLOY_DIR/anti-ddos/nginx/antiddos-server.conf" /etc/nginx/snippets/antiddos-server.conf
+install -m 0644 "$DEPLOY_DIR/anti-ddos/nginx/nginx.conf" /etc/nginx/nginx.conf
+mkdir -p /var/cache/nginx/proxy_cache
+chown www-data:www-data /var/cache/nginx
 
 # Отключаем старый zz-ratelimit.conf (конфликтует с новым zone antiddos_general).
 if [ -f /etc/nginx/conf.d/zz-ratelimit.conf ]; then
@@ -62,9 +65,10 @@ if ! command -v fail2ban-client >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get update -qq
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fail2ban
 fi
-install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/jail.local"           /etc/fail2ban/jail.local
-install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/nginx-429-flood.conf" /etc/fail2ban/filter.d/nginx-429-flood.conf
-install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/nginx-post-root.conf" /etc/fail2ban/filter.d/nginx-post-root.conf
+install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/jail.local"                  /etc/fail2ban/jail.local
+install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/nginx-429-flood.conf"        /etc/fail2ban/filter.d/nginx-429-flood.conf
+install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/nginx-post-root.conf"        /etc/fail2ban/filter.d/nginx-post-root.conf
+install -m 0644 "$DEPLOY_DIR/anti-ddos/fail2ban/nginx-connection-refused.conf" /etc/fail2ban/filter.d/nginx-connection-refused.conf
 
 echo "==> 4. Установка logrotate (по размеру, hourly cron)"
 install -m 0644 "$DEPLOY_DIR/anti-ddos/logrotate.nginx"        /etc/logrotate.d/nginx-politempire

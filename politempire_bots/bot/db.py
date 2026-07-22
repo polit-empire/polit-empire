@@ -232,6 +232,15 @@ _MIGRATIONS = [
         ip VARCHAR(45) DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    # Общее наигранное время по каждому игроку (в секундах)
+    """
+    CREATE TABLE IF NOT EXISTS bot_playtime (
+        mc_username VARCHAR(80) PRIMARY KEY,
+        total_seconds INT NOT NULL DEFAULT 0,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_playtime (total_seconds)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
     # Новости из Discord-канала (показываются в лаунчере)
     """
     CREATE TABLE IF NOT EXISTS bot_news (

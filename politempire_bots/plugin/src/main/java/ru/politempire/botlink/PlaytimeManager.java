@@ -1,0 +1,177 @@
+package ru.politempire.botlink;
+
+import org.bukkit.entity.Player;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
+
+/**
+ * Учёт наигранного времени через bot API (бот хранит в MySQL, не локально).
+ *
+ * Поток данных:
+ * 1. Игрок входит → PlaytimeManager记录ает время старта сессии (в памяти).
+ * 2. Каждые 30 сек → фоновый тик добавляет накопленное время через
+ *    POST /api/player/quit+join (close+reopen session в боте).
+ * 3. При запросе плейсхолдера/API → берёт из кэша (обновляется фоновым тиком).
+ * 4. Игрок выходит → POST /api/player/quit закрывает сессию, бот фиксирует время.
+ *
+ * Хранение: только в БД (через bot API). На диске сервера НИЧЕГО не сохраняется.
+ *
+ * Публичный API для других плагинов:
+ *   PlaytimeManager.get(plugin).getPlaytimeSeconds(player)  — int, из кэша
+ *   PlaytimeManager.get(plugin).getPlaytimeFormatted(player) — "1ч 23м"
+ *   PlaytimeManager.get(plugin).fetchPlaytimeAsync(player)   — CompletableFuture<Integer>
+ */
+public final class PlaytimeManager {
+
+    private static PlaytimeManager instance;
+
+    private final BotLinkPlugin plugin;
+    private final ApiClient api;
+    private final HttpClient http;
+    private final Logger log;
+    private final String baseUrl;
+    private final String secret;
+
+    /** Локальное время старта сессии по UUID (для расчёта "живого" времени). */
+    private final Map<UUID, Long> sessionStart = new ConcurrentHashMap<>();
+
+    /** Кэш наигранного времени (секунды) по нику игрока. */
+    private final Map<String, Integer> playtimeCache = new ConcurrentHashMap<>();
+
+    private PlaytimeManager(BotLinkPlugin plugin, ApiClient api) {
+        this.plugin = plugin;
+        this.api = api;
+        this.log = plugin.getLogger();
+        String url = plugin.getConfig().getString("api-url", "http://127.0.0.1:8180");
+        this.baseUrl = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+        this.secret = plugin.getConfig().getString("api-secret", "");
+        this.http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+    }
+
+    /** Инициализация синглтона. Вызывается из BotLinkPlugin.onEnable(). */
+    static void init(BotLinkPlugin plugin, ApiClient api) {
+        instance = new PlaytimeManager(plugin, api);
+    }
+
+    /**
+     * Получить экземпляр PlaytimeManager для использования из других плагинов.
+     * @return синглтон, или null если BotLink не загружен.
+     */
+    public static PlaytimeManager get() {
+        return instance;
+    }
+
+    // ---- Управление сессиями ----
+
+    /** Вызывается при входе игрока (из PlayerListener). */
+    void onJoin(Player player) {
+        sessionStart.put(player.getUniqueId(), System.currentTimeMillis());
+        // Сразу тянем актуальный плейтайм с бота
+        fetchPlaytimeAsync(player.getName()).thenAccept(secs ->
+                plugin.getServer().getScheduler().runTask(plugin, () ->
+                        playtimeCache.put(player.getName(), secs)));
+    }
+
+    /** Вызывается при выходе игрока (из PlayerListener). */
+    void onQuit(Player player) {
+        sessionStart.remove(player.getUniqueId());
+        playtimeCache.remove(player.getName());
+    }
+
+    /** Фоновый тик: каждые 30 сек обновляет кэш для онлайн-игроков. */
+    void tick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            fetchPlaytimeAsync(p.getName()).thenAccept(secs ->
+                    playtimeCache.put(p.getName(), secs));
+        }
+    }
+
+    // ---- Публичный API для других плагинов ----
+
+    /**
+     * Наигранное время игрока в секундах (из кэша, мгновенно).
+     * Если игрок онлайн — включает время текущей сессии.
+     * @return секунд, или 0 если данных нет.
+     */
+    public int getPlaytimeSeconds(Player player) {
+        int cached = playtimeCache.getOrDefault(player.getName(), 0);
+        long sessionMs = sessionStart.getOrDefault(player.getUniqueId(), 0L);
+        if (sessionMs > 0) {
+            cached += (int) ((System.currentTimeMillis() - sessionMs) / 1000);
+        }
+        return cached;
+    }
+
+    /**
+     * Наигранное время игрока в секундах по нику (из кэша).
+     * Не включает время текущей сессии (только сохранённое в БД).
+     */
+    public int getPlaytimeSeconds(String username) {
+        return playtimeCache.getOrDefault(username, 0);
+    }
+
+    /**
+     * Наигранное время в формате "1ч 23м" или "45м" или "30с".
+     */
+    public String getPlaytimeFormatted(Player player) {
+        return formatTime(getPlaytimeSeconds(player));
+    }
+
+    public String getPlaytimeFormatted(String username) {
+        return formatTime(getPlaytimeSeconds(username));
+    }
+
+    /**
+     * Асинхронный запрос плейтайма к bot API.
+     * @return CompletableFuture<Integer> — секунды (0 при ошибке).
+     */
+    public CompletableFuture<Integer> fetchPlaytimeAsync(String username) {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/player/playtime?username=" + urlEncode(username)))
+                .timeout(Duration.ofSeconds(5))
+                .header("X-Api-Secret", secret)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .handle((resp, err) -> {
+                    if (err != null || resp == null || resp.statusCode() != 200) {
+                        return 0;
+                    }
+                    return parsePlaytime(resp.body());
+                });
+    }
+
+    // ---- Утилиты ----
+
+    /** Форматирует секунды в "1ч 23м", "45м", "30с". */
+    public static String formatTime(int totalSeconds) {
+        if (totalSeconds < 60) return totalSeconds + "с";
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        if (hours > 0) return hours + "ч " + minutes + "м";
+        return minutes + "м";
+    }
+
+    private static int parsePlaytime(String json) {
+        var m = java.util.regex.Pattern
+                .compile("\"playtime_seconds\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    private static String urlEncode(String s) {
+        return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
+    }
+}

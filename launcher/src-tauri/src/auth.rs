@@ -34,6 +34,7 @@ async fn report_hwid_and_check_ban(client: &reqwest::Client, token: &str) -> boo
         .header("User-Agent", launcher_user_agent())
         .header("Authorization", format!("Bearer {token}"))
         .json(&serde_json::json!({ "hwid": hwid }))
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await;
     match res {
@@ -65,6 +66,7 @@ pub async fn login(nickname: String, password: String) -> Result<LoginResponse, 
             .header("User-Agent", launcher_user_agent())
             .header("X-HWID", &hwid)
             .json(&serde_json::json!({ "Login": nickname, "Password": password }))
+            .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
         {
@@ -152,6 +154,7 @@ pub async fn verify_session() -> Result<VerifyResponse, String> {
             .header("User-Agent", launcher_user_agent())
             .header("X-HWID", get_or_create_hwid())
             .json(&serde_json::json!({ "AccessToken": token }))
+            .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
         {

@@ -2,10 +2,21 @@ name: PolitEmpireBotLink
 version: '1.0.0'
 main: ru.politempire.botlink.BotLinkPlugin
 api-version: '1.21'
-description: Интеграция с Telegram/Discord ботом - 2FA и учёт игрового времени
+description: Интеграция с Telegram/Discord ботом - 2FA, учёт игрового времени, плейсхолдер %botlink_playtime%
 author: PolitEmpire
+
+softdepend:
+  - PlaceholderAPI
 
 commands:
   2fa:
     description: Подтвердить код двухфакторной аутентификации
     usage: /2fa <код>
+  playtime:
+    description: Показать наигранное время (своё или другого игрока)
+    usage: /playtime [ник]
+
+permissions:
+  botlink.playtime.others:
+    description: Просмотр наигранного времени других игроков
+    default: true

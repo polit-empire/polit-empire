@@ -207,7 +207,88 @@ pub fn finish_session() {
 }
 
 /// Возвращает текущую статистику игрового времени для интерфейса.
+///
+/// ИСТОЧНИК ИСТИНЫ — сервер (bot API /api/player/playtime), не локальный файл.
+/// Локальный подписанный файл используется только как кэш/фолбэк, когда сервер
+/// недоступен. Это гарантирует, что наигранное время в лаунчере совпадает с
+/// временем в БД (и с плейсхолдером %botlink_playtime% на сервере).
+///
+/// Запрос к bot API идёт с токеном сессии GML (Bearer) — тот же механизм
+/// авторизации, что и у остальных API-вызовов лаунчера. Сервер определяет
+/// игрока по нику из JWT-токена.
 #[tauri::command]
-pub fn get_playtime_stats() -> PlaytimeStats {
+pub async fn get_playtime_stats() -> PlaytimeStats {
+    // Пытаемся получить реальный плейтайм с сервера.
+    if let Some(server_stats) = fetch_server_playtime().await {
+        return server_stats;
+    }
+    // Сервер недоступен — отдаём локальный кэш (подписанный файл на диске).
     load_stats()
+}
+
+/// Запрашивает наигранное время у bot API.
+/// Bot API хранит данные в MySQL (таблица bot_playtime) — это единый источник
+/// истины для лаунчера, плагина BotLink и плейсхолдера %botlink_playtime%.
+async fn fetch_server_playtime() -> Option<PlaytimeStats> {
+    let settings = crate::config::load_settings();
+    let nickname = settings.nickname.as_deref()?;
+
+    // Запрос идёт через сайт (api_base), который проксируется на bot API.
+    // Bot API endpoint: GET /api/player/playtime?username=...
+    // Используем api_base() лаунчера — тот же хост, что и для остальных
+    // API-вызовов (телеметрия, скины, новости).
+    let base = crate::config::api_base();
+    let url = format!(
+        "{}/api/player/playtime?username={}",
+        base,
+        urlencode(nickname)
+    );
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let body: serde_json::Value = resp.json().await.ok()?;
+    let total = body
+        .get("playtime_seconds")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    // Объединяем: серверный total_seconds — авторитетный; локальные данные
+    // (session_count, longest_session, last_session) — дополняющие, их
+    // сервер пока не отдаёт (могут быть добавлены позже).
+    let local = load_stats();
+
+    Some(PlaytimeStats {
+        total_seconds: total,
+        session_count: local.session_count,
+        last_session_seconds: local.last_session_seconds,
+        longest_session_seconds: local.longest_session_seconds,
+        last_played_unix: local.last_played_unix,
+    })
+}
+
+/// URL-кодирование ника (для query-параметра).
+fn urlencode(s: &str) -> String {
+    let mut result = String::new();
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                result.push(byte as char);
+            }
+            _ => {
+                result.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    result
 }

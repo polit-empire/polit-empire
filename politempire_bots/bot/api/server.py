@@ -111,6 +111,7 @@ async def _close_session(username: str) -> None:
     seconds = int((datetime.utcnow() - session["joined_at"]).total_seconds())
     await db.execute("DELETE FROM bot_play_sessions WHERE mc_username=%s", (username,))
     if seconds > 0:
+        await _add_playtime(username, min(seconds, 24 * 3600))
         await referrals.add_playtime(username, min(seconds, 24 * 3600))
 
 
@@ -127,6 +128,36 @@ async def handle_player_quit(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def _add_playtime(username: str, seconds: int) -> None:
+    """Добавляет секунды в общее наигранное время игрока (bot_playtime)."""
+    if seconds <= 0:
+        return
+    await db.execute(
+        "INSERT INTO bot_playtime (mc_username, total_seconds) VALUES (%s, %s) "
+        "ON DUPLICATE KEY UPDATE total_seconds = total_seconds + VALUES(total_seconds)",
+        (username, seconds),
+    )
+
+
+async def handle_player_playtime(request: web.Request) -> web.Response:
+    """GET /api/player/playtime?username=... -> {"playtime_seconds": 12345}"""
+    username = (request.query.get("username") or "").strip()
+    if not username:
+        return web.json_response({"error": "username required"}, status=400)
+    row = await db.fetchone(
+        "SELECT total_seconds FROM bot_playtime WHERE mc_username=%s", (username,)
+    )
+    # Учитываем также время текущей незакрытой сессии
+    session = await db.fetchone(
+        "SELECT joined_at FROM bot_play_sessions WHERE mc_username=%s", (username,)
+    )
+    live = 0
+    if session:
+        live = int((datetime.utcnow() - session["joined_at"]).total_seconds())
+    total = (row["total_seconds"] if row else 0) + max(0, live)
+    return web.json_response({"playtime_seconds": total})
+
+
 async def _playtime_ticker() -> None:
     """Каждую минуту добавляет время открытым сессиям, чтобы порог 10 минут
     срабатывал без ожидания выхода игрока."""
@@ -140,6 +171,7 @@ async def _playtime_ticker() -> None:
                     "UPDATE bot_play_sessions SET joined_at=UTC_TIMESTAMP() WHERE mc_username=%s",
                     (s["mc_username"],),
                 )
+                await _add_playtime(s["mc_username"], TICK_SECONDS)
                 await referrals.add_playtime(s["mc_username"], TICK_SECONDS)
         except Exception:
             log.exception("playtime ticker error")
@@ -151,6 +183,7 @@ async def start_api() -> None:
     app.router.add_post("/api/player/join", handle_player_join)
     app.router.add_post("/api/player/quit", handle_player_quit)
     app.router.add_post("/api/2fa/verify", handle_2fa_verify)
+    app.router.add_get("/api/player/playtime", handle_player_playtime)
 
     runner = web.AppRunner(app)
     await runner.setup()

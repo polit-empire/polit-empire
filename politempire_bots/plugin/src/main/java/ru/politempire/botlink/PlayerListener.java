@@ -42,6 +42,9 @@ public final class PlayerListener implements Listener {
         InetSocketAddress addr = player.getAddress();
         String ip = addr != null ? addr.getAddress().getHostAddress() : null;
 
+        // Регистрируем сессию в PlaytimeManager (для кэша плейтайма)
+        PlaytimeManager.get().onJoin(player);
+
         api.playerJoin(username, ip).thenAccept(result ->
                 // Возвращаемся в основной поток сервера
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
@@ -84,6 +87,7 @@ public final class PlayerListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         freeze.discard(event.getPlayer().getUniqueId());
+        PlaytimeManager.get().onQuit(event.getPlayer());
         api.playerQuit(event.getPlayer().getName());
     }
 

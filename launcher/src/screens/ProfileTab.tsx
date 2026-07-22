@@ -2,8 +2,24 @@ import { useEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { SkinViewer, WalkingAnimation } from "skinview3d"
 
+interface PlaytimeStats {
+  total_seconds: number
+  session_count: number
+  last_session_seconds: number
+  longest_session_seconds: number
+  last_played_unix: number
+}
+
 interface Props {
   nickname: string
+}
+
+function formatPlaytime(seconds: number): string {
+  if (seconds < 60) return `${seconds}с`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (h > 0) return `${h}ч ${m}м`
+  return `${m}м`
 }
 
 export default function ProfileTab({ nickname }: Props) {
@@ -17,11 +33,18 @@ export default function ProfileTab({ nickname }: Props) {
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const [cacheBust, setCacheBust] = useState(() => Date.now())
+  const [playtime, setPlaytime] = useState<PlaytimeStats | null>(null)
 
   useEffect(() => {
     invoke<string | null>("get_skin_url")
       .then(setSkinUrl)
       .catch(() => setSkinUrl(null))
+  }, [])
+
+  useEffect(() => {
+    invoke<PlaytimeStats>("get_playtime_stats")
+      .then(setPlaytime)
+      .catch(() => {})
   }, [])
 
   // Инициализация и обновление 3D-просмотрщика
@@ -126,6 +149,19 @@ export default function ProfileTab({ nickname }: Props) {
             <p className="text-xs text-muted">Никнейм</p>
             <p className="mt-0.5 truncate text-lg font-bold text-primary">{nickname}</p>
           </div>
+
+          {playtime && playtime.total_seconds > 0 && (
+            <div className="rounded-lg border border-border bg-card/60 p-4">
+              <p className="text-xs text-muted">Наиграно всего</p>
+              <p className="mt-0.5 text-lg font-bold text-primary">
+                {formatPlaytime(playtime.total_seconds)}
+              </p>
+              <div className="mt-2 flex gap-4 text-xs text-muted">
+                <span>Сессий: {playtime.session_count}</span>
+                <span>Лучшая: {formatPlaytime(playtime.longest_session_seconds)}</span>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-lg border border-border bg-card/60 p-4">
             <h3 className="text-sm font-semibold">Скин</h3>

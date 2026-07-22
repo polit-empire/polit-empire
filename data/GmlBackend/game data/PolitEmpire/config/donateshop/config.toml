@@ -20,7 +20,7 @@
 	#  0.0.0.0   — слушать на всех интерфейсах (открыто наружу)
 	api_bind_host = "0.0.0.0"
 	#Секретный ключ API. Обязательно замените на свой!
-	api_secret_key = "CHANGE_ME"
+	api_secret_key = "BP62XCzdE9gJ2tdVANEo2l9INIMpRvB0GCGcpfT7Qz0"
 
 [shop]
 	#Список предметов в магазине.
@@ -193,7 +193,7 @@ group=Elite
 	#Пример: https://politempire.org
 	site_url = "https://politempire.org"
 	#Секретный ключ для запросов к сайту (должен совпадать с DONATE_API_KEY в .env сайта)
-	site_api_key = "CHANGE_ME"
+	site_api_key = "BP62XCzdE9gJ2tdVANEo2l9INIMpRvB0GCGcpfT7Qz0"
 	#Период автоматической проверки покупок на сайте (в секундах).
 	#Игрокам сразу выдаются покупки, без необходимости использовать /donate cart.
 	#0 = отключить периодическую проверку.

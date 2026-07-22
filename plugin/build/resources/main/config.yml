@@ -5,7 +5,7 @@
 site-url: "https://ваш-сайт.ру"
 
 # Секретный ключ мода (mod_admin_key) — тот же, что вписан в админке сайта.
-mod-admin-key: ""
+mod-admin-key: "BP62XCzdE9gJ2tdVANEo2l9INIMpRvB0GCGcpfT7Qz0"
 
 # Как часто (в секундах) обновлять баланс онлайн-игроков с сайта.
 refresh-seconds: 15

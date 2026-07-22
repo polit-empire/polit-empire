@@ -52,9 +52,9 @@ enabled  = true
 port     = ssh
 filter   = sshd
 backend  = systemd
-maxretry = 5
-findtime = 10m
-bantime  = 1h
+maxretry = 3
+findtime = 5m
+bantime  = 4h
 
 # ----------------------------------------------------------------------------
 # nginx-limit-req — срабатывает на встроенный лимит nginx (limit_req).
@@ -69,9 +69,9 @@ enabled  = true
 port     = http,https
 filter   = nginx-limit-req
 logpath  = /var/log/nginx/error.log
-maxretry = 8
-findtime = 5m
-bantime  = 2h
+maxretry = 5
+findtime = 1m
+bantime  = 4h
 
 # ----------------------------------------------------------------------------
 # nginx-429-flood — отключён.
@@ -128,3 +128,46 @@ logpath  = /var/log/nginx/access.log
 maxretry = 5
 findtime = 10m
 bantime  = 1h
+
+# ----------------------------------------------------------------------------
+# nginx-upstream-timeout — банит IP, вызывающие upstream timeout.
+# При DDoS nginx не может соединиться с бэкендом (GML/web) из-за перегрузки.
+# Каждый такой таймаут = 1 попытка. 3 таймаутов за 30 секунд = бан на 6ч.
+# ----------------------------------------------------------------------------
+[nginx-upstream-timeout]
+enabled   = true
+port      = http,https
+filter    = nginx-upstream-timeout
+logpath   = /var/log/nginx/error.log
+maxretry  = 3
+findtime  = 30s
+bantime   = 6h
+
+# ----------------------------------------------------------------------------
+# nginx-444-ddos — банит IP, которым nginx закрыл соединение (444) за
+# подозрительные запросы (spam-параметры без Referer). Это DDoS-боты,
+# которые мы отсекли на уровне nginx.
+# ----------------------------------------------------------------------------
+[nginx-444-ddos]
+enabled   = true
+port      = http,https
+filter    = nginx-444-ddos
+logpath   = /var/log/nginx/access.log
+maxretry  = 3
+findtime  = 1m
+bantime   = 6h
+
+# ----------------------------------------------------------------------------
+# nginx-connection-refused — банит IP, из-за которых nginx не может
+# соединиться с upstream (бэкенд упал). При DDoS бэкенд валится,
+# nginx пишет Connection refused в error.log. Баним быстрее, чем
+# upstream-timeout — это ранний индикатор DDoS.
+# ----------------------------------------------------------------------------
+[nginx-connection-refused]
+enabled   = true
+port      = http,https
+filter    = nginx-connection-refused
+logpath   = /var/log/nginx/error.log
+maxretry  = 3
+findtime  = 10s
+bantime   = 1h
