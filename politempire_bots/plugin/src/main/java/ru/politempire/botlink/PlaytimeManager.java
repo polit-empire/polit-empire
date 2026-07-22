@@ -47,6 +47,9 @@ public final class PlaytimeManager {
     /** Кэш наигранного времени (секунды) по нику игрока. */
     private final Map<String, Integer> playtimeCache = new ConcurrentHashMap<>();
 
+    /** Кэш DC-баланса по нику игрока. */
+    private final Map<String, Integer> dcCache = new ConcurrentHashMap<>();
+
     private PlaytimeManager(BotLinkPlugin plugin, ApiClient api) {
         this.plugin = plugin;
         this.api = api;
@@ -77,16 +80,20 @@ public final class PlaytimeManager {
     /** Вызывается при входе игрока (из PlayerListener). */
     void onJoin(Player player) {
         sessionStart.put(player.getUniqueId(), System.currentTimeMillis());
-        // Сразу тянем актуальный плейтайм с бота
+        // Сразу тянем актуальный плейтайм и DC с бота
         fetchPlaytimeAsync(player.getName()).thenAccept(secs ->
                 plugin.getServer().getScheduler().runTask(plugin, () ->
                         playtimeCache.put(player.getName(), secs)));
+        fetchBalanceAsync(player.getName()).thenAccept(dc ->
+                plugin.getServer().getScheduler().runTask(plugin, () ->
+                        dcCache.put(player.getName(), dc)));
     }
 
     /** Вызывается при выходе игрока (из PlayerListener). */
     void onQuit(Player player) {
         sessionStart.remove(player.getUniqueId());
         playtimeCache.remove(player.getName());
+        dcCache.remove(player.getName());
     }
 
     /** Фоновый тик: каждые 30 сек обновляет кэш для онлайн-игроков. */
@@ -94,6 +101,8 @@ public final class PlaytimeManager {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             fetchPlaytimeAsync(p.getName()).thenAccept(secs ->
                     playtimeCache.put(p.getName(), secs));
+            fetchBalanceAsync(p.getName()).thenAccept(dc ->
+                    dcCache.put(p.getName(), dc));
         }
     }
 
@@ -153,6 +162,41 @@ public final class PlaytimeManager {
                 });
     }
 
+    // ---- DC-баланс ----
+
+    /**
+     * DC-баланс игрока (из кэша, мгновенно).
+     * @return баланс DC, или 0 если данных нет.
+     */
+    public int getDcBalance(Player player) {
+        return dcCache.getOrDefault(player.getName(), 0);
+    }
+
+    public int getDcBalance(String username) {
+        return dcCache.getOrDefault(username, 0);
+    }
+
+    /**
+     * Асинхронный запрос DC-баланса к bot API.
+     * @return CompletableFuture<Integer> — баланс (0 при ошибке).
+     */
+    public CompletableFuture<Integer> fetchBalanceAsync(String username) {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/player/balance?username=" + urlEncode(username)))
+                .timeout(Duration.ofSeconds(5))
+                .header("X-Api-Secret", secret)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .handle((resp, err) -> {
+                    if (err != null || resp == null || resp.statusCode() != 200) {
+                        return 0;
+                    }
+                    return parseBalance(resp.body());
+                });
+    }
+
     // ---- Утилиты ----
 
     /** Форматирует секунды в "1ч 23м", "45м", "30с". */
@@ -167,6 +211,13 @@ public final class PlaytimeManager {
     private static int parsePlaytime(String json) {
         var m = java.util.regex.Pattern
                 .compile("\"playtime_seconds\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    private static int parseBalance(String json) {
+        var m = java.util.regex.Pattern
+                .compile("\"balance\"\\s*:\\s*(-?\\d+)")
                 .matcher(json);
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
     }

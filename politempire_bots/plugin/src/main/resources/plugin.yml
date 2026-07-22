@@ -2,7 +2,7 @@ name: PolitEmpireBotLink
 version: '${project.version}'
 main: ru.politempire.botlink.BotLinkPlugin
 api-version: '1.21'
-description: Интеграция с Telegram/Discord ботом - 2FA, учёт игрового времени, плейсхолдер %botlink_playtime%
+description: Интеграция с Telegram/Discord ботом - 2FA, учёт игрового времени, DC-баланс, плейсхолдеры %botlink_playtime% %botlink_dc%
 author: PolitEmpire
 
 softdepend:

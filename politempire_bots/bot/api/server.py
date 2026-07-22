@@ -158,6 +158,19 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
     return web.json_response({"playtime_seconds": total})
 
 
+async def handle_player_balance(request: web.Request) -> web.Response:
+    """GET /api/player/balance?username=... -> {"balance": 100}"""
+    username = (request.query.get("username") or "").strip()
+    if not username:
+        return web.json_response({"error": "username required"}, status=400)
+    row = await db.fetchone(
+        "SELECT COALESCE(SUM(amount), 0) AS bal FROM bot_balance_log WHERE mc_username=%s",
+        (username,),
+    )
+    balance = row["bal"] if row else 0
+    return web.json_response({"balance": int(balance)})
+
+
 async def _playtime_ticker() -> None:
     """Каждую минуту добавляет время открытым сессиям, чтобы порог 10 минут
     срабатывал без ожидания выхода игрока."""
@@ -184,6 +197,7 @@ async def start_api() -> None:
     app.router.add_post("/api/player/quit", handle_player_quit)
     app.router.add_post("/api/2fa/verify", handle_2fa_verify)
     app.router.add_get("/api/player/playtime", handle_player_playtime)
+    app.router.add_get("/api/player/balance", handle_player_balance)
 
     runner = web.AppRunner(app)
     await runner.setup()

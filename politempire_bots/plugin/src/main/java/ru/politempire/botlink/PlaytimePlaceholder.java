@@ -5,7 +5,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Экспансия PlaceholderAPI: %botlink_playtime%
+ * Экспансия PlaceholderAPI: %botlink_playtime% и %botlink_dc%
  *
  * Поддерживаемые плейсхолдеры:
  *   %botlink_playtime%             — "1ч 23м" (человеко-читаемый формат)
@@ -14,6 +14,8 @@ import org.jetbrains.annotations.NotNull;
  *   %botlink_playtime_hours%       — 1 (только часы)
  *   %botlink_playtime_minutes%     — 23 (только минуты, без учёта часов)
  *   %botlink_playtime_total_minutes% — 83 (всего минут)
+ *   %botlink_dc%                   — 100 (DC-баланс, число)
+ *   %botlink_dc_formatted%         — "100 DC"
  *
  * Используется в скорборде, таб-листе, любых плейсхолдерах через PAPI.
  * Данные берутся из кэша PlaytimeManager (обновляется каждые 30 сек),
@@ -48,6 +50,16 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
         PlaytimeManager pm = PlaytimeManager.get();
         if (pm == null) return "";
 
+        // DC-баланс
+        if (params.toLowerCase().startsWith("dc")) {
+            int dc = pm.getDcBalance(player);
+            String lower = params.toLowerCase();
+            if (lower.equals("dc")) return String.valueOf(dc);
+            if (lower.equals("dc_formatted")) return dc + " DC";
+            return "";
+        }
+
+        // Наигранное время
         int seconds = pm.getPlaytimeSeconds(player);
 
         return switch (params.toLowerCase()) {
