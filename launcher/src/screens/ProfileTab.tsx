@@ -150,16 +150,20 @@ export default function ProfileTab({ nickname }: Props) {
             <p className="mt-0.5 truncate text-lg font-bold text-primary">{nickname}</p>
           </div>
 
-          {playtime && playtime.total_seconds > 0 && (
+          {playtime && (
             <div className="rounded-lg border border-border bg-card/60 p-4">
               <p className="text-xs text-muted">Наиграно всего</p>
               <p className="mt-0.5 text-lg font-bold text-primary">
-                {formatPlaytime(playtime.total_seconds)}
+                {playtime.total_seconds > 0
+                  ? formatPlaytime(playtime.total_seconds)
+                  : "Ещё не играли"}
               </p>
-              <div className="mt-2 flex gap-4 text-xs text-muted">
-                <span>Сессий: {playtime.session_count}</span>
-                <span>Лучшая: {formatPlaytime(playtime.longest_session_seconds)}</span>
-              </div>
+              {playtime.total_seconds > 0 && (
+                <div className="mt-2 flex gap-4 text-xs text-muted">
+                  <span>Сессий: {playtime.session_count}</span>
+                  <span>Лучшая: {formatPlaytime(playtime.longest_session_seconds)}</span>
+                </div>
+              )}
             </div>
           )}
 
