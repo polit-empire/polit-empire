@@ -1052,7 +1052,6 @@ pub fn kill_game() -> Result<bool, String> {
         child.kill().map_err(|e| format!("Не удалось закрыть игру: {e}"))?;
         let _ = child.wait();
         *guard = None;
-        crate::stats::finish_session();
         crate::discord_rpc::set_launcher();
         return Ok(true);
     }
