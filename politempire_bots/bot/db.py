@@ -283,6 +283,19 @@ async def _migrate() -> None:
                         ) from e
                     raise
 
+            # Автоматическая миграция новых колонок для ранее созданных таблиц
+            column_migrations = [
+                "ALTER TABLE bot_play_sessions ADD COLUMN last_ticked_at DATETIME DEFAULT NULL",
+                "ALTER TABLE bot_playtime ADD COLUMN session_count INT NOT NULL DEFAULT 0",
+                "ALTER TABLE bot_playtime ADD COLUMN longest_session_seconds INT NOT NULL DEFAULT 0",
+                "ALTER TABLE bot_playtime ADD COLUMN last_session_seconds INT NOT NULL DEFAULT 0",
+            ]
+            for alter_sql in column_migrations:
+                try:
+                    await cur.execute(alter_sql)
+                except Exception:
+                    pass  # Игнорируем ошибку 1060 (Duplicate column name), если колонка уже есть
+
 
 def _table_name(create_sql: str) -> str:
     """Извлекает имя таблицы из 'CREATE TABLE IF NOT EXISTS <name> ('."""
