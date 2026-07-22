@@ -251,6 +251,30 @@ async def _playtime_ticker() -> None:
             log.exception("playtime ticker error")
 
 
+async def handle_update_playtime(request: web.Request) -> web.Response:
+    """POST /api/player/playtime {"username": "...", "total_seconds": N}
+    Синхронизирует наигранное время из лаунчера в БД бота.
+    """
+    data = await request.json()
+    username = (data.get("username") or "").strip()
+    if not username:
+        return web.json_response({"error": "username required"}, status=400)
+
+    total_seconds = data.get("total_seconds")
+    add_seconds = data.get("add_seconds")
+
+    if total_seconds is not None and isinstance(total_seconds, (int, float)) and total_seconds > 0:
+        await db.execute(
+            "INSERT INTO bot_playtime (mc_username, total_seconds) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE total_seconds = GREATEST(total_seconds, VALUES(total_seconds))",
+            (username, int(total_seconds)),
+        )
+    elif add_seconds is not None and isinstance(add_seconds, (int, float)) and add_seconds > 0:
+        await _add_playtime(username, int(add_seconds))
+
+    return web.json_response({"ok": True})
+
+
 async def start_api() -> None:
     app = web.Application(middlewares=[auth_middleware])
     app.router.add_get("/api/health", handle_health)
@@ -258,6 +282,7 @@ async def start_api() -> None:
     app.router.add_post("/api/player/quit", handle_player_quit)
     app.router.add_post("/api/2fa/verify", handle_2fa_verify)
     app.router.add_get("/api/player/playtime", handle_player_playtime)
+    app.router.add_post("/api/player/playtime", handle_update_playtime)
     app.router.add_get("/api/player/balance", handle_player_balance)
 
     runner = web.AppRunner(app)

@@ -200,10 +200,41 @@ pub fn finish_session() {
         .unwrap_or(0);
     persist_stats(&stats);
 
+    let total_to_sync = stats.total_seconds;
+    tauri::async_runtime::spawn(async move {
+        sync_playtime_to_server(total_to_sync).await;
+    });
+
     // Дублируем длительность сессии на сервер (телеметрия). Это единственный
     // источник, который игрок не может поправить локально: если на сервере
     // вести сумму, локальный файл вообще перестаёт быть авторитетным.
     crate::telemetry::report_telemetry_event("playtime_session", &elapsed.to_string());
+}
+
+/// Отправляет наигранное время из лаунчера на сервер, если в локальном кэше значение выше.
+pub async fn sync_playtime_to_server(total_seconds: u64) {
+    if total_seconds == 0 {
+        return;
+    }
+    let settings = crate::config::load_settings();
+    let Some(nickname) = settings.nickname.as_deref() else {
+        return;
+    };
+
+    let base = crate::config::api_base();
+    let url = format!("{}/api/player/playtime", base);
+
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "username": nickname,
+            "total_seconds": total_seconds
+        }))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await;
 }
 
 /// Возвращает текущую статистику игрового времени для интерфейса.
@@ -224,7 +255,11 @@ pub async fn get_playtime_stats() -> PlaytimeStats {
         // Объединяем серверную статистику и локальный кэш (берём максимум),
         // чтобы нулевые/неполные данные сервера не обнуляли локальный прогресс.
         if local.total_seconds > server_stats.total_seconds {
-            server_stats.total_seconds = local.total_seconds;
+            let target_total = local.total_seconds;
+            server_stats.total_seconds = target_total;
+            tauri::async_runtime::spawn(async move {
+                sync_playtime_to_server(target_total).await;
+            });
         }
         if local.session_count > server_stats.session_count {
             server_stats.session_count = local.session_count;
@@ -240,7 +275,13 @@ pub async fn get_playtime_stats() -> PlaytimeStats {
         persist_stats(&server_stats);
         return server_stats;
     }
-    // Сервер недоступен — отдаём локальный кэш (подписанный файл на диске).
+    // Сервер недоступен — если есть локальное время, пытаемся синхронизировать в фоне
+    if local.total_seconds > 0 {
+        let local_total = local.total_seconds;
+        tauri::async_runtime::spawn(async move {
+            sync_playtime_to_server(local_total).await;
+        });
+    }
     local
 }
 
