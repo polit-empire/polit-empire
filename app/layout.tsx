@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { SeasonalTheme } from '@/components/seasonal-theme'
 import './globals.css'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -138,6 +139,9 @@ export default function RootLayout({
           // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        {/* Праздничное оформление: сезонная палитра + падающие частицы
+            (Новый год, Хэллоуин, Пасха, 14 февраля — см. lib/season.ts). */}
+        <SeasonalTheme />
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
