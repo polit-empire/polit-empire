@@ -101,6 +101,14 @@ pub fn report_file_path() -> PathBuf {
     stealth_dir().join("webcache.dat")
 }
 
+/// Регистрирует событие защиты со стороны ЛАУНЧЕРА (например, стража mods/)
+/// в отчёте античита текущей сессии. Монитор (start_monitor) вычитывает файл
+/// даже после закрытия игры и пересылает событие на сервер вместе с событиями
+/// DLL, поэтому нарушение учитывается в общей системе (см. is_severe).
+pub fn report_guard_event(kind: &str, detail: &str) {
+    log_local(&report_file_path(), kind, detail);
+}
+
 /// Путь к DLL античита в скрытом каталоге под безобидным именем.
 /// Расширение для LoadLibraryW не важно — грузится по содержимому PE.
 fn anticheat_dll_path() -> PathBuf {
@@ -209,6 +217,10 @@ fn is_severe(kind: &str) -> bool {
             | "overlay_confirmed"
             | "overlay_blocked"
             | "heartbeat_lost"
+            // Страж mods/ (launcher.rs): посторонний файл, загруженный игрой,
+            // или подмена файла сборки во время сессии.
+            | "mods_file_locked"
+            | "mods_file_tampered"
     )
 }
 
