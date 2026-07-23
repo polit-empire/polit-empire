@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Палитра лаунчера — через CSS-переменные (RGB-триплеты для поддержки
+ * прозрачности в Tailwind: rgb(var(--pe-*) / <alpha-value>)).
+ * Значения ниже — обычное оформление; в праздники их переопределяет
+ * сезонная тема (см. src/lib/theme.ts + SeasonalOverlay).
+ */
+:root {
+  --pe-background: 13 17 23;
+  --pe-card: 22 27 34;
+  --pe-border: 48 54 61;
+  --pe-foreground: 230 237 243;
+  --pe-muted: 139 148 158;
+  --pe-primary: 63 185 80;
+  --pe-primary-dark: 46 160 67;
+  --pe-danger: 248 81 73;
+  /* Подложка-градиент главного экрана (Shell). */
+  --pe-tint: rgba(2, 44, 34, 0.5);
+}
+
 body {
   @apply bg-background text-foreground font-mono antialiased;
   user-select: none;
@@ -11,9 +30,32 @@ body {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d1117;
+  background: rgb(var(--pe-background));
 }
 ::-webkit-scrollbar-thumb {
-  background: #30363d;
+  background: rgb(var(--pe-border));
   border-radius: 4px;
+}
+
+/* Падающие частицы праздничного оверлея (SeasonalOverlay). */
+@keyframes pe-fall {
+  from {
+    transform: translateY(-8vh) translateX(0);
+  }
+  to {
+    transform: translateY(108vh) translateX(var(--pe-drift, 0px));
+  }
+}
+.pe-flake {
+  position: absolute;
+  top: 0;
+  animation-name: pe-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pe-flake {
+    display: none;
+  }
 }

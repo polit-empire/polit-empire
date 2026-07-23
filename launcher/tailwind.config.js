@@ -3,15 +3,19 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Цвета берутся из CSS-переменных (:root в styles.css) в виде
+      // RGB-триплетов — так работают модификаторы прозрачности (bg-primary/15),
+      // а сезонные темы (src/lib/theme.ts) могут переопределять палитру
+      // в рантайме без пересборки.
       colors: {
-        background: "#0d1117",
-        card: "#161b22",
-        border: "#30363d",
-        foreground: "#e6edf3",
-        muted: "#8b949e",
-        primary: "#3fb950",
-        "primary-dark": "#2ea043",
-        danger: "#f85149",
+        background: "rgb(var(--pe-background) / <alpha-value>)",
+        card: "rgb(var(--pe-card) / <alpha-value>)",
+        border: "rgb(var(--pe-border) / <alpha-value>)",
+        foreground: "rgb(var(--pe-foreground) / <alpha-value>)",
+        muted: "rgb(var(--pe-muted) / <alpha-value>)",
+        primary: "rgb(var(--pe-primary) / <alpha-value>)",
+        "primary-dark": "rgb(var(--pe-primary-dark) / <alpha-value>)",
+        danger: "rgb(var(--pe-danger) / <alpha-value>)",
       },
       fontFamily: {
         mono: ["'JetBrains Mono'", "Consolas", "monospace"],
