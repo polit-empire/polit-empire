@@ -1,5 +1,6 @@
 use futures_util::StreamExt;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -690,12 +691,28 @@ async fn sync_and_launch_inner() -> Result<(), String> {
 
     // 4. Удаляем посторонние файлы из mods/ и других контролируемых папок
     set_progress(SyncProgress { stage: "cleaning".into(), files_done: files_total, files_total, bytes_done, bytes_total, ..Default::default() });
-    let removed = remove_unmanaged_files(&game_dir, manifest);
-    if !removed.is_empty() {
+    let cleaned = remove_unmanaged_files(&game_dir, manifest);
+    if !cleaned.removed.is_empty() {
         crate::telemetry::report_launcher_log(
             "info",
-            &format!("Очистка: удалено лишних файлов — {} ({})", removed.len(), removed.join(", ")),
+            &format!(
+                "Очистка: удалено лишних файлов — {} ({})",
+                cleaned.removed.len(),
+                cleaned.removed.join(", ")
+            ),
         );
+    }
+    // Посторонний файл не удалось удалить (занят другим процессом или защищён
+    // от удаления) — гарантий чистой сборки нет, запускать игру нельзя. Раньше
+    // эта ошибка молча игнорировалась, и игра стартовала с посторонним модом.
+    if !cleaned.locked.is_empty() {
+        let msg = format!(
+            "Не удалось удалить посторонние файлы из сборки: {}. Закройте программы, использующие эти файлы, и нажмите «Играть» ещё раз.",
+            cleaned.locked.join(", ")
+        );
+        crate::telemetry::report_launcher_log("error", &msg);
+        set_progress(SyncProgress { stage: "error".into(), error: Some(msg.clone()), ..Default::default() });
+        return Err(msg);
     }
 
     // 5. Защита: отладчик на лаунчере + запущенные инжекторы/отладчики/сниферы
@@ -742,11 +759,249 @@ async fn sync_and_launch_inner() -> Result<(), String> {
         final_integrity_check(&game_dir, manifest).map_err(|_| first_err)?;
     }
 
+    // 6c. Страж mods/: до сих пор каталоги сборки очищались РОВНО ОДИН РАЗ на
+    // шаге 4, после чего шли долгие сетевые проверки (шаги 5–6), старт JVM и вся
+    // игровая сессия — и никто больше за mods/ не следил. Достаточно было нажать
+    // «Играть» и во время «Защита и запуск…» (или уже в игре) подложить в mods/
+    // произвольный jar — лаунчер его не удалял, а final_integrity_check не
+    // замечал: он сверяет только файлы манифеста и не видит ЛИШНИЕ. Страж
+    // стартует ДО спавна процесса игры (первая зачистка — синхронная) и до конца
+    // сессии непрерывно удаляет посторонние файлы и ловит подмену файлов сборки.
+    start_mods_guard(game_dir.clone(), manifest.clone());
+
     // 7. Запускаем игру аргументами, которые сформировал GML
-    launch_game(&game_dir, &settings.java_path, &profile)?;
+    if let Err(e) = launch_game(&game_dir, &settings.java_path, &profile) {
+        // Игра не стартовала — страж этой сессии больше не нужен.
+        stop_mods_guard();
+        return Err(e);
+    }
 
     set_progress(SyncProgress { stage: "done".into(), files_done: files_total, files_total, bytes_done, bytes_total, ..Default::default() });
     Ok(())
+}
+
+// ==================== Страж каталогов сборки во время игры ====================
+
+/// Поколение стража mods/. Каждый вызов `start_mods_guard` увеличивает счётчик
+/// и тем самым останавливает предыдущего стража (если тот ещё крутится);
+/// `stop_mods_guard` делает то же самое без запуска нового.
+static MODS_GUARD_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Пауза между проходами стража. Forge/Fabric сканируют mods/ через десятки
+/// секунд после старта JVM, поэтому 2 секунды с запасом закрывают окно, в
+/// которое можно успеть подложить jar.
+const MODS_GUARD_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Сколько проходов подряд посторонний файл должен «не удаляться», прежде чем
+/// это считается подтверждённым нарушением (загруженный игрой чит). Страйки
+/// защищают от ложных срабатываний на транзиентные блокировки (антивирус и т.п.).
+const LOCKED_STRIKES_TO_KILL: u32 = 3;
+
+/// Сколько проходов подряд файл сборки должен не совпадать с манифестом,
+/// прежде чем подмена считается подтверждённой.
+const CHANGED_STRIKES_TO_KILL: u32 = 2;
+
+/// Останавливает текущего стража mods/ (если он запущен).
+fn stop_mods_guard() {
+    MODS_GUARD_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Дешёвый снимок файла сборки: размер + время изменения. Совпадение считаем
+/// отсутствием изменений (полный SHA-1 каждые 2 секунды по сотням модов был бы
+/// слишком дорог во время игры); при любом отличии файл перепроверяется
+/// полноценным хешированием против манифеста.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    size: u64,
+    mtime: Option<std::time::SystemTime>,
+}
+
+fn stamp_of(path: &Path) -> Option<FileStamp> {
+    let meta = fs::metadata(path).ok()?;
+    Some(FileStamp { size: meta.len(), mtime: meta.modified().ok() })
+}
+
+/// Регистрирует подтверждённое нарушение стража: живой лог админки, событие в
+/// разделе «Ошибки лаунчера» и запись в отчёт античита текущей сессии — монитор
+/// (inject::start_monitor) перешлёт её на сервер вместе с событиями DLL.
+fn report_mods_violation(kind: &str, path: &str, what: &str) {
+    let msg = format!("Страж mods/: {what} — {path}. Игра будет закрыта.");
+    crate::telemetry::report_launcher_log("error", &msg);
+    crate::telemetry::report_telemetry_event("error", &msg);
+    crate::inject::report_guard_event(kind, &format!("{what}: {path}"));
+}
+
+/// Запускает фонового стража каталогов сборки на время игровой сессии.
+///
+/// Что делает страж:
+///  • синхронно (ещё до спавна процесса игры) зачищает mods/ от посторонних
+///    файлов — закрывает окно между финальной сверкой и стартом JVM;
+///  • затем раз в `MODS_GUARD_INTERVAL` повторяет зачистку всю сессию: мод,
+///    подложенный во время «Защита и запуск…» или уже в игре, удаляется в
+///    течение пары секунд;
+///  • посторонний файл, который не удаляется несколько проходов подряд
+///    (на Windows это значит, что jar уже загружен процессом игры), считается
+///    подтверждённым нарушением — игра принудительно закрывается;
+///  • ловит ПОДМЕНУ файлов сборки (чит, записанный поверх легального мода):
+///    по дешёвому снимку размер+mtime, с перепроверкой SHA-1 при любом
+///    отличии; подтверждённая подмена также закрывает игру.
+///
+/// Страж завершается сам: когда игра, которую он успел увидеть запущенной,
+/// закрывается; когда его останавливают `stop_mods_guard`/новый запуск; либо
+/// по таймауту, если игра так и не появилась.
+fn start_mods_guard(game_dir: PathBuf, manifest: Manifest) {
+    // Новое поколение: прежний страж (если был) завершится на своём проходе.
+    let generation = MODS_GUARD_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+
+    // Файлы сборки, живущие в контролируемых каталогах (обычно mods/*): за
+    // ними страж следит не только на предмет «лишних» соседей, но и на подмену.
+    let managed_prefixes: Vec<String> = manifest
+        .managed_dirs
+        .iter()
+        .map(|d| format!("{}/", d.trim_end_matches('/').to_lowercase()))
+        .collect();
+    let watched: Vec<ManifestFile> = manifest
+        .files
+        .iter()
+        .filter(|f| {
+            let lower = f.path.to_lowercase();
+            managed_prefixes.iter().any(|p| lower.starts_with(p.as_str()))
+        })
+        .cloned()
+        .collect();
+
+    // Первая зачистка — синхронная, до возврата управления и спавна игры.
+    let first = remove_unmanaged_files(&game_dir, &manifest);
+    if !first.removed.is_empty() {
+        crate::telemetry::report_launcher_log(
+            "warn",
+            &format!(
+                "Страж mods/: перед запуском удалены посторонние файлы — {}",
+                first.removed.join(", ")
+            ),
+        );
+    }
+
+    // Эталонный снимок файлов сборки: они только что прошли финальную SHA-1
+    // сверку, поэтому их текущее состояние на диске и есть эталон.
+    let mut stamps: HashMap<String, Option<FileStamp>> = watched
+        .iter()
+        .map(|f| (f.path.clone(), stamp_of(&game_dir.join(&f.path))))
+        .collect();
+
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let mut seen_running = false;
+        let mut kill_session = false;
+        // Страйки подряд по каждому файлу и список уже зарепорченных нарушений.
+        let mut locked_strikes: HashMap<String, u32> = HashMap::new();
+        let mut changed_strikes: HashMap<String, u32> = HashMap::new();
+        let mut reported: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        loop {
+            // Запустили новую синхронизацию или остановили вручную — выходим.
+            if MODS_GUARD_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
+
+            // 1. Зачистка посторонних файлов. Неудаляемый посторонний файл —
+            // кандидат в «загруженный игрой чит», считаем страйки.
+            let sweep = remove_unmanaged_files(&game_dir, &manifest);
+            if !sweep.removed.is_empty() {
+                crate::telemetry::report_launcher_log(
+                    "warn",
+                    &format!(
+                        "Страж mods/: удалены посторонние файлы во время сессии — {}",
+                        sweep.removed.join(", ")
+                    ),
+                );
+            }
+            // Сбрасываем страйки файлов, которые больше не заблокированы,
+            // и наращиваем тем, что заблокированы до сих пор.
+            locked_strikes.retain(|path, _| sweep.locked.contains(path));
+            for f in &sweep.locked {
+                let n = locked_strikes.entry(f.clone()).or_insert(0);
+                *n += 1;
+                if *n >= LOCKED_STRIKES_TO_KILL && reported.insert(f.clone()) {
+                    report_mods_violation(
+                        "mods_file_locked",
+                        f,
+                        "посторонний файл в каталоге сборки занят процессом и не удаляется (предположительно загруженный чит)",
+                    );
+                    kill_session = true;
+                }
+            }
+
+            // 2. Контроль подмены файлов сборки (тот же путь — другое содержимое).
+            for entry in &watched {
+                let abs = game_dir.join(&entry.path);
+                let now = stamp_of(&abs);
+                let baseline = stamps.get(&entry.path).copied().flatten();
+                let unchanged = match (baseline, now) {
+                    (Some(a), Some(b)) => a == b,
+                    (None, None) => true,
+                    _ => false,
+                };
+                if unchanged {
+                    changed_strikes.remove(&entry.path);
+                    continue;
+                }
+                // Снимок изменился — перепроверяем содержимое честным SHA-1.
+                let matches_manifest = crate::integrity::hash_file(&abs)
+                    .map(|h| h.eq_ignore_ascii_case(&entry.hash))
+                    .unwrap_or(false);
+                if matches_manifest {
+                    // Файл трогали, но содержимое эталонное (например, антивирус
+                    // обновил метаданные) — просто обновляем снимок.
+                    stamps.insert(entry.path.clone(), now);
+                    changed_strikes.remove(&entry.path);
+                    continue;
+                }
+                let n = changed_strikes.entry(entry.path.clone()).or_insert(0);
+                *n += 1;
+                if *n >= CHANGED_STRIKES_TO_KILL && reported.insert(entry.path.clone()) {
+                    report_mods_violation(
+                        "mods_file_tampered",
+                        &entry.path,
+                        "файл сборки подменён или удалён во время сессии",
+                    );
+                    kill_session = true;
+                }
+            }
+
+            // 3. Подтверждённое нарушение: закрываем игру. Если процесс ещё не
+            // успел зарегистрироваться в GAME_CHILD (первые секунды запуска),
+            // kill_game вернёт Ok(false) — тогда продолжаем попытки на каждом
+            // проходе, пока игра не будет закрыта или сессия не завершится.
+            if kill_session {
+                if let Ok(true) = kill_game() {
+                    crate::telemetry::report_launcher_log(
+                        "error",
+                        "Страж mods/: игра принудительно закрыта из-за вмешательства в каталоги сборки.",
+                    );
+                    return;
+                }
+            }
+
+            // 4. Условия завершения.
+            let running = is_game_running();
+            if running {
+                seen_running = true;
+            }
+            if seen_running && !running {
+                // Игра закрылась штатно — до следующего запуска mods/ снова
+                // зачистит шаг 4 синхронизации.
+                return;
+            }
+            if !seen_running && started.elapsed() > std::time::Duration::from_secs(600) {
+                // Игра так и не появилась (сбой запуска, не дошедший до
+                // stop_mods_guard) — не крутимся вечно.
+                return;
+            }
+
+            std::thread::sleep(MODS_GUARD_INTERVAL);
+        }
+    });
 }
 
 /// Разбивает строку аргументов на токены с учётом кавычек (как shell).

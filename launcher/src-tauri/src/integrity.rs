@@ -148,8 +148,21 @@ pub fn diff_manifest(game_dir: &Path, manifest: &Manifest) -> Vec<ManifestFile> 
     to_download
 }
 
+/// Результат зачистки контролируемых каталогов.
+#[derive(Debug, Default)]
+pub struct UnmanagedSweep {
+    /// Успешно удалённые посторонние файлы (пути относительно каталога игры).
+    pub removed: Vec<String>,
+    /// Посторонние файлы, которые удалить НЕ удалось. Раньше такие ошибки
+    /// молча проглатывались — файл оставался на диске, и игра его загружала.
+    /// Неудаляемый файл в mods/ почти всегда означает, что он занят процессом
+    /// игры (Windows блокирует загруженные jar) или защищён специально, поэтому
+    /// вызывающий код обязан реагировать, а не игнорировать.
+    pub locked: Vec<String>,
+}
+
 /// Удаляет посторонние файлы из контролируемых каталогов (например, читы в mods/).
-pub fn remove_unmanaged_files(game_dir: &Path, manifest: &Manifest) -> Vec<String> {
+pub fn remove_unmanaged_files(game_dir: &Path, manifest: &Manifest) -> UnmanagedSweep {
     // Разрешённые пути в нижнем регистре: файловая система Windows
     // регистронезависима, поэтому сравнение тоже должно быть без учёта
     // регистра — иначе managed-файл с иным регистром ошибочно считался бы
@@ -159,7 +172,7 @@ pub fn remove_unmanaged_files(game_dir: &Path, manifest: &Manifest) -> Vec<Strin
         .iter()
         .map(|f| f.path.replace('\\', "/").to_lowercase())
         .collect();
-    let mut removed = Vec::new();
+    let mut sweep = UnmanagedSweep::default();
 
     for dir in &manifest.managed_dirs {
         let abs_dir = game_dir.join(dir);
@@ -171,13 +184,15 @@ pub fn remove_unmanaged_files(game_dir: &Path, manifest: &Manifest) -> Vec<Strin
                 let rel_str = rel.to_string_lossy().replace('\\', "/");
                 if !allowed.contains(&rel_str.to_lowercase()) {
                     if fs::remove_file(file_path).is_ok() {
-                        removed.push(rel_str);
+                        sweep.removed.push(rel_str);
+                    } else {
+                        sweep.locked.push(rel_str);
                     }
                 }
             }
         });
     }
-    removed
+    sweep
 }
 
 fn walk_files(dir: &Path, cb: &mut dyn FnMut(&Path)) {
