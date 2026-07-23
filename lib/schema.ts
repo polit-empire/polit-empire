@@ -210,6 +210,54 @@ async function runMigration() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
+  // Журнал действий администраторов (аудит). Пишется из /api/admin/action и
+  // других админ-эндпоинтов через logAdminAction (lib/audit.ts). Показывает
+  // абсолютно все действия: баны, кики, смена ника/пароля, выдача/списание DC
+  // и привилегий, удаление аккаунтов, точечные баны по HWID/UUID/IP.
+  //  • admin_nick  — кто сделал действие
+  //  • action      — машинное имя действия (ban, unban, give_dc, set_nick, ...)
+  //  • target_nick — над кем действие (может быть NULL для value-банов)
+  //  • detail      — человекочитаемое описание (что именно изменилось)
+  //  • ip          — IP администратора на момент действия
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS admin_logs (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      admin_nick  VARCHAR(32) NOT NULL,
+      action      VARCHAR(48) NOT NULL,
+      target_nick VARCHAR(32) NULL,
+      detail      VARCHAR(1024) NULL,
+      ip          VARCHAR(45) NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_admin_logs_created (created_at),
+      INDEX idx_admin_logs_admin (admin_nick),
+      INDEX idx_admin_logs_target (target_nick),
+      INDEX idx_admin_logs_action (action)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Журнал событий аккаунтов (не-админские). Пишется через logAccountEvent
+  // (lib/audit.ts). Показывает вход в лаунчер и в личный кабинет; регистрации
+  // при этом берутся напрямую из users.created_at (создаются Telegram-ботом).
+  //  • event_type       — launcher_login | web_login | register (на будущее)
+  //  • minecraft_nick   — чей аккаунт
+  //  • ip / hwid         — откуда вошли (если известно)
+  //  • launcher_version — версия лаунчера (из User-Agent), для launcher_login
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS account_events (
+      id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+      event_type       VARCHAR(32) NOT NULL,
+      minecraft_nick   VARCHAR(32) NULL,
+      ip               VARCHAR(45) NULL,
+      hwid             VARCHAR(64) NULL,
+      launcher_version VARCHAR(32) NULL,
+      detail           VARCHAR(512) NULL,
+      created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_acct_events_created (created_at),
+      INDEX idx_acct_events_type (event_type),
+      INDEX idx_acct_events_nick (minecraft_nick)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS launcher_versions (
       id         INT AUTO_INCREMENT PRIMARY KEY,

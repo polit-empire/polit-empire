@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react"
 import useSWR from "swr"
-import { Bug, LoaderCircle, RefreshCw, ShieldAlert, Terminal } from "lucide-react"
+import { Bug, LoaderCircle, RefreshCw, Search, ShieldAlert, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { jsonFetcher } from "@/lib/fetcher"
-import { Card, Select } from "@/components/admin/ui"
+import { Card, TextInput } from "@/components/admin/ui"
 
 type Section = "anticheat" | "errors" | "logs"
 
@@ -15,33 +15,43 @@ const SUBTABS: Array<{ id: Section; label: string; icon: typeof Bug }> = [
   { id: "logs", label: "Лайв-логи", icon: Terminal },
 ]
 
-interface PlayerOpt {
-  nick: string
-  last_ts: string | null
-}
-
-/** Выпадающий список игроков (кто присылал телеметрию). */
-function PlayerSelect({
-  value,
-  onChange,
-  allowAll,
+/**
+ * Поиск по нику (как в разделе «Игроки»): текстовое поле + кнопка «Найти».
+ * Отправляет введённое значение наверх только по submit, чтобы не дёргать
+ * сервер на каждый символ. Пустой запрос трактуется как «показать всё».
+ */
+function SearchBox({
+  onSearch,
+  placeholder,
 }: {
-  value: string
-  onChange: (v: string) => void
-  allowAll?: boolean
+  onSearch: (value: string) => void
+  placeholder: string
 }) {
-  const { data } = useSWR<{ players: PlayerOpt[] }>("/api/admin/telemetry?section=players", jsonFetcher)
-  const players = data?.players ?? []
+  const [query, setQuery] = useState("")
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} className="max-w-xs">
-      {allowAll && <option value="">Все игроки</option>}
-      {!allowAll && <option value="">— выберите игрока —</option>}
-      {players.map((p) => (
-        <option key={p.nick} value={p.nick}>
-          {p.nick}
-        </option>
-      ))}
-    </Select>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSearch(query.trim())
+      }}
+      className="flex gap-2"
+    >
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <TextInput
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={placeholder}
+          className="w-56 pl-9"
+        />
+      </div>
+      <button
+        type="submit"
+        className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        Найти
+      </button>
+    </form>
   )
 }
 
@@ -116,8 +126,8 @@ const SEVERE = new Set([
 ])
 
 function AnticheatView() {
-  const [nick, setNick] = useState("")
-  const key = `/api/admin/telemetry?section=anticheat${nick ? `&nick=${encodeURIComponent(nick)}` : ""}`
+  const [q, setQ] = useState("")
+  const key = `/api/admin/telemetry?section=anticheat${q ? `&q=${encodeURIComponent(q)}` : ""}`
   const { data, isLoading, mutate, isValidating } = useSWR<{ events: AcEvent[] }>(key, jsonFetcher, {
     refreshInterval: 15_000,
   })
@@ -131,7 +141,7 @@ function AnticheatView() {
           <h3 className="text-sm font-semibold">События античита</h3>
         </div>
         <div className="flex items-center gap-2">
-          <PlayerSelect value={nick} onChange={setNick} allowAll />
+          <SearchBox onSearch={setQ} placeholder="Поиск по нику / детали / типу..." />
           <RefreshButton onClick={() => mutate()} busy={isValidating} />
         </div>
       </div>
@@ -139,7 +149,7 @@ function AnticheatView() {
       {isLoading ? (
         <Loading />
       ) : events.length === 0 ? (
-        <Empty text="Событий античита нет." />
+        <Empty text={q ? "Ничего не найдено." : "Событий античита нет."} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -204,8 +214,8 @@ const EVENT_LABELS: Record<string, string> = {
 }
 
 function ErrorsView() {
-  const [nick, setNick] = useState("")
-  const key = `/api/admin/telemetry?section=errors${nick ? `&nick=${encodeURIComponent(nick)}` : ""}`
+  const [q, setQ] = useState("")
+  const key = `/api/admin/telemetry?section=errors${q ? `&q=${encodeURIComponent(q)}` : ""}`
   const { data, isLoading, mutate, isValidating } = useSWR<{ events: ErrEvent[] }>(key, jsonFetcher, {
     refreshInterval: 15_000,
   })
@@ -219,7 +229,7 @@ function ErrorsView() {
           <h3 className="text-sm font-semibold">Ошибки лаунчера и игры</h3>
         </div>
         <div className="flex items-center gap-2">
-          <PlayerSelect value={nick} onChange={setNick} allowAll />
+          <SearchBox onSearch={setQ} placeholder="Поиск по нику / тексту..." />
           <RefreshButton onClick={() => mutate()} busy={isValidating} />
         </div>
       </div>
@@ -227,7 +237,7 @@ function ErrorsView() {
       {isLoading ? (
         <Loading />
       ) : events.length === 0 ? (
-        <Empty text="Ошибок нет." />
+        <Empty text={q ? "Ничего не найдено." : "Ошибок нет."} />
       ) : (
         <div className="flex flex-col gap-2">
           {events.map((e) => (
@@ -261,6 +271,7 @@ function ErrorsView() {
 
 interface LogLine {
   id: number
+  minecraft_nick: string | null
   session: string | null
   level: string
   source: string
@@ -269,9 +280,9 @@ interface LogLine {
 }
 
 function LogsView() {
-  const [nick, setNick] = useState("")
+  const [q, setQ] = useState("")
   const [live, setLive] = useState(true)
-  const key = nick ? `/api/admin/telemetry?section=logs&nick=${encodeURIComponent(nick)}` : null
+  const key = `/api/admin/telemetry?section=logs${q ? `&q=${encodeURIComponent(q)}` : ""}`
   const { data, isLoading, mutate, isValidating } = useSWR<{ lines: LogLine[] }>(key, jsonFetcher, {
     refreshInterval: live ? 3_000 : 0,
   })
@@ -282,10 +293,10 @@ function LogsView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Terminal className="size-5 text-primary" />
-          <h3 className="text-sm font-semibold">Лайв-логи игрока</h3>
+          <h3 className="text-sm font-semibold">Лайв-логи{q ? ` · ${q}` : " · все игроки"}</h3>
         </div>
         <div className="flex items-center gap-2">
-          <PlayerSelect value={nick} onChange={setNick} />
+          <SearchBox onSearch={setQ} placeholder="Поиск по нику..." />
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-primary" />
             Live
@@ -294,17 +305,18 @@ function LogsView() {
         </div>
       </div>
 
-      {!nick ? (
-        <Empty text="Выберите игрока, чтобы смотреть логи." />
-      ) : isLoading ? (
+      {isLoading ? (
         <Loading />
       ) : lines.length === 0 ? (
-        <Empty text="Логов пока нет (лаунчер их ещё не присылал)." />
+        <Empty text={q ? "Логов по этому нику нет." : "Логов пока нет (лаунчер их ещё не присылал)."} />
       ) : (
         <div className="max-h-[28rem] overflow-auto rounded-md border border-border bg-[#0b0f14] p-3 font-mono text-xs leading-relaxed">
           {lines.map((l) => (
             <div key={l.id} className="flex gap-2">
               <span className="shrink-0 text-muted-foreground/60">{fmtClock(l.created_at)}</span>
+              {!q && l.minecraft_nick && (
+                <span className="shrink-0 text-sky-400/80">{l.minecraft_nick}</span>
+              )}
               <span className={cn("shrink-0 uppercase", levelColor(l.level))}>{l.level}</span>
               <span className="whitespace-pre-wrap break-all text-foreground/90">{l.line}</span>
             </div>

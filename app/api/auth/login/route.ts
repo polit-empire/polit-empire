@@ -3,6 +3,7 @@ import { getDb, findUserByNick } from "@/lib/db"
 import { verifyPassword } from "@/lib/passwords"
 import { generateApiToken, sha256 } from "@/lib/tokens"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { logAccountEvent, clientIp, launcherVersionFromReq } from "@/lib/audit"
 
 const bodySchema = z.object({
   nickname: z.string().regex(/^[a-zA-Z0-9_]{3,16}$/),
@@ -50,6 +51,15 @@ export async function POST(request: Request) {
     sha256(rawToken),
     user.minecraft_nick,
   ])
+
+  // Журнал входов (раздел «Логи входов» в админ-панели). Не блокирует вход.
+  await logAccountEvent({
+    eventType: "launcher_login",
+    nick: user.minecraft_nick,
+    ip: clientIp(request),
+    launcherVersion: launcherVersionFromReq(request),
+    detail: "Вход в лаунчер",
+  })
 
   return Response.json({ token: rawToken, nickname: user.minecraft_nick })
 }

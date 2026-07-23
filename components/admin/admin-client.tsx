@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Activity, Coins, Megaphone, Package, Settings, Users } from "lucide-react"
+import { Activity, Coins, LogIn, Megaphone, Package, ScrollText, Settings, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PlayersPanel } from "@/components/admin/players-panel"
 import { ProductsPanel } from "@/components/admin/products-panel"
@@ -9,8 +9,18 @@ import { OrdersPanel } from "@/components/admin/orders-panel"
 import { BroadcastPanel } from "@/components/admin/broadcast-panel"
 import { SettingsPanel } from "@/components/admin/settings-panel"
 import { TelemetryPanel } from "@/components/admin/telemetry-panel"
+import { AdminLogsPanel } from "@/components/admin/admin-logs-panel"
+import { AccountEventsPanel } from "@/components/admin/account-events-panel"
 
-type Tab = "players" | "products" | "orders" | "broadcast" | "telemetry" | "settings"
+type Tab =
+  | "players"
+  | "products"
+  | "orders"
+  | "broadcast"
+  | "telemetry"
+  | "adminlogs"
+  | "accounts"
+  | "settings"
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "players", label: "Игроки", icon: Users },
@@ -18,6 +28,8 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "orders", label: "Заказы", icon: Coins },
   { id: "broadcast", label: "Рассылка", icon: Megaphone },
   { id: "telemetry", label: "Телеметрия", icon: Activity },
+  { id: "adminlogs", label: "Логи админов", icon: ScrollText },
+  { id: "accounts", label: "Логи входов", icon: LogIn },
   { id: "settings", label: "Настройки", icon: Settings },
 ]
 
@@ -61,6 +73,8 @@ export function AdminClient({ adminNick }: { adminNick: string }) {
       {tab === "orders" && <OrdersPanel />}
       {tab === "broadcast" && <BroadcastPanel />}
       {tab === "telemetry" && <TelemetryPanel />}
+      {tab === "adminlogs" && <AdminLogsPanel />}
+      {tab === "accounts" && <AccountEventsPanel />}
       {tab === "settings" && <SettingsPanel />}
     </div>
   )
