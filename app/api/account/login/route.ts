@@ -3,6 +3,7 @@ import { findUserByNick } from "@/lib/db"
 import { verifyPassword } from "@/lib/passwords"
 import { createSession } from "@/lib/session"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { logAccountEvent, clientIp } from "@/lib/audit"
 
 /**
  * POST /api/account/login
@@ -47,5 +48,14 @@ export async function POST(request: Request) {
   }
 
   await createSession(user.minecraft_nick)
+
+  // Журнал входов (раздел «Логи входов» в админ-панели). Не блокирует вход.
+  await logAccountEvent({
+    eventType: "web_login",
+    nick: user.minecraft_nick,
+    ip: clientIp(request),
+    detail: "Вход в личный кабинет",
+  })
+
   return Response.json({ ok: true, nick: user.minecraft_nick })
 }

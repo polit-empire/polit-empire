@@ -11,10 +11,15 @@ const ERROR_EVENTS = ["game_crash", "download_error", "auth_error", "error"]
 /**
  * GET /api/admin/telemetry?section=...
  *
- *  section=anticheat  — события античита (anticheat_events), фильтр ?nick=
- *  section=errors     — ошибки лаунчера/игры (telemetry, error-типы), ?nick=
- *  section=logs       — live-логи (launcher_logs), ?nick= обязателен, ?after=<id>
+ *  section=anticheat  — события античита (anticheat_events)
+ *  section=errors     — ошибки лаунчера/игры (telemetry, error-типы)
+ *  section=logs       — live-логи (launcher_logs), ?after=<id> для докачки
  *  section=players    — список ников для выбора (кто присылал телеметрию)
+ *
+ * Поиск (как в разделе «Игроки»): параметр ?q= фильтрует по нику и связанным
+ * полям через LIKE. Для обратной совместимости также принимается ?nick= (точное
+ * совпадение). Пустой q в anticheat/errors — все события; в logs — последние
+ * строки всех игроков.
  */
 export async function GET(req: Request) {
   const admin = await getAdminUser()
@@ -23,6 +28,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const section = url.searchParams.get("section") ?? "anticheat"
   const nick = url.searchParams.get("nick")?.trim() || ""
+  const q = url.searchParams.get("q")?.trim() || ""
+  const like = `%${q}%`
   const db = getDb()
 
   try {
@@ -46,7 +53,12 @@ export async function GET(req: Request) {
     if (section === "anticheat") {
       const params: unknown[] = []
       let where = ""
-      if (nick) {
+      if (q) {
+        // Поиск по нику, деталям, типу события и HWID.
+        where =
+          "WHERE minecraft_nick LIKE ? OR detail LIKE ? OR kind LIKE ? OR hwid LIKE ?"
+        params.push(like, like, like, like)
+      } else if (nick) {
         where = "WHERE minecraft_nick = ?"
         params.push(nick)
       }
@@ -63,7 +75,10 @@ export async function GET(req: Request) {
       const placeholders = ERROR_EVENTS.map(() => "?").join(",")
       const params: unknown[] = [...ERROR_EVENTS]
       let extra = ""
-      if (nick) {
+      if (q) {
+        extra = "AND (minecraft_nick LIKE ? OR message LIKE ? OR event_type LIKE ?)"
+        params.push(like, like, like)
+      } else if (nick) {
         extra = "AND minecraft_nick = ?"
         params.push(nick)
       }
@@ -78,28 +93,44 @@ export async function GET(req: Request) {
     }
 
     if (section === "logs") {
-      if (!nick) return NextResponse.json({ error: "нужен nick" }, { status: 400 })
+      // Совместимость: если пришёл точный nick (старый dropdown) — используем его,
+      // иначе строим фильтр по q (LIKE). Пустой запрос => последние строки всех.
+      const search = q || nick
       const after = Number(url.searchParams.get("after") || 0)
+
       if (after > 0) {
         // Инкрементальная подгрузка новых строк по курсору.
+        const params: unknown[] = [after]
+        let filter = ""
+        if (search) {
+          filter = nick && !q ? "AND minecraft_nick = ?" : "AND minecraft_nick LIKE ?"
+          params.push(nick && !q ? nick : `%${search}%`)
+        }
         const [rows] = await db.query(
-          `SELECT id, session, level, source, line, created_at
+          `SELECT id, minecraft_nick, session, level, source, line, created_at
            FROM launcher_logs
-           WHERE minecraft_nick = ? AND id > ?
+           WHERE id > ? ${filter}
            ORDER BY id ASC LIMIT 500`,
-          [nick, after],
+          params,
         )
         return NextResponse.json({ lines: rows })
       }
+
       // Хвост: последние 400 строк в хронологическом порядке.
+      const params: unknown[] = []
+      let where = ""
+      if (search) {
+        where = nick && !q ? "WHERE minecraft_nick = ?" : "WHERE minecraft_nick LIKE ?"
+        params.push(nick && !q ? nick : `%${search}%`)
+      }
       const [rows] = await db.query(
-        `SELECT id, session, level, source, line, created_at FROM (
-           SELECT id, session, level, source, line, created_at
+        `SELECT id, minecraft_nick, session, level, source, line, created_at FROM (
+           SELECT id, minecraft_nick, session, level, source, line, created_at
            FROM launcher_logs
-           WHERE minecraft_nick = ?
+           ${where}
            ORDER BY id DESC LIMIT 400
          ) AS tail ORDER BY id ASC`,
-        [nick],
+        params,
       )
       return NextResponse.json({ lines: rows })
     }

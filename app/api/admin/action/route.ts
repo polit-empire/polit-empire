@@ -5,6 +5,7 @@ import { rconExec } from "@/lib/rcon"
 import { getSetting, logDc, getProduct } from "@/lib/donate"
 import { banAccount, unbanAccount, banValue, unbanValue, type BanKind } from "@/lib/bans"
 import { hashPassword, isValidPassword } from "@/lib/passwords"
+import { logAdminAction, clientIp } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -29,6 +30,9 @@ function fill(tmpl: string, vars: Record<string, string | number>): string {
  * Единая точка для админ-действий над игроком:
  *  give_privilege | take_privilege | give_dc | take_dc | ban | unban | kick
  *  set_password | set_nick | delete_account
+ *
+ * Каждое успешное действие пишется в журнал аудита (admin_logs) через
+ * logAdminAction — раздел «Логи админов» в админ-панели показывает их все.
  */
 export async function POST(req: Request) {
   const admin = await getAdminUser()
@@ -40,6 +44,8 @@ export async function POST(req: Request) {
   }
   const action: string = b.action
   const db = getDb()
+  const ip = clientIp(req)
+  const adminNick = admin.minecraft_nick
 
   // Баны по «сырому» значению (HWID / UUID / IP) не требуют выбора ника.
   const VALUE_KINDS: BanKind[] = ["hwid", "uuid", "ip"]
@@ -53,6 +59,14 @@ export async function POST(req: Request) {
       if (action === "ban_value") {
         const reason = (b.reason as string) || "Нарушение правил"
         const nicks = await banValue(kind, value, reason)
+        await logAdminAction({
+          adminNick,
+          action: "ban_value",
+          detail:
+            `Бан по ${kind.toUpperCase()} = ${value}. Причина: ${reason}.` +
+            (nicks.length > 0 ? ` Затронуты аккаунты: ${nicks.join(", ")}` : " Связанных аккаунтов не найдено"),
+          ip,
+        })
         return NextResponse.json({
           ok: true,
           message:
@@ -62,6 +76,14 @@ export async function POST(req: Request) {
         })
       }
       const removed = await unbanValue(kind, value)
+      if (removed) {
+        await logAdminAction({
+          adminNick,
+          action: "unban_value",
+          detail: `Снят бан по ${kind.toUpperCase()} = ${value}`,
+          ip,
+        })
+      }
       return NextResponse.json({
         ok: removed,
         message: removed ? `Снят бан ${kind.toUpperCase()}` : "Значение не найдено в чёрном списке",
@@ -96,6 +118,13 @@ export async function POST(req: Request) {
            VALUES (?, ?, ?, ?)`,
           [nick, group, product?.id ?? null, expires],
         )
+        await logAdminAction({
+          adminNick,
+          action: "give_privilege",
+          targetNick: nick,
+          detail: `Выдана привилегия ${group} на ${days}д`,
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Выдана привилегия ${group} на ${days}д` })
       }
       case "take_privilege": {
@@ -107,6 +136,13 @@ export async function POST(req: Request) {
           "DELETE FROM donate_privileges WHERE minecraft_nick = ? AND group_name = ?",
           [nick, group],
         )
+        await logAdminAction({
+          adminNick,
+          action: "take_privilege",
+          targetNick: nick,
+          detail: `Снята привилегия ${group}`,
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Снята привилегия ${group}` })
       }
       case "give_dc": {
@@ -114,7 +150,14 @@ export async function POST(req: Request) {
         if (amount <= 0) return NextResponse.json({ error: "сумма > 0" }, { status: 400 })
         const tmpl = await getSetting("dc_rcon_template", "dc give {nick} {amount}")
         await rconExec([fill(tmpl, { nick, amount })])
-        await logDc(nick, amount, `Выдача админом (${admin.minecraft_nick})`, admin.minecraft_nick)
+        await logDc(nick, amount, `Выдача админом (${adminNick})`, adminNick)
+        await logAdminAction({
+          adminNick,
+          action: "give_dc",
+          targetNick: nick,
+          detail: `Выдано ${amount} DC`,
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Выдано ${amount} DC` })
       }
       case "take_dc": {
@@ -122,13 +165,27 @@ export async function POST(req: Request) {
         if (amount <= 0) return NextResponse.json({ error: "сумма > 0" }, { status: 400 })
         const tmpl = await getSetting("dc_take_template", "dc take {nick} {amount}")
         await rconExec([fill(tmpl, { nick, amount })])
-        await logDc(nick, -amount, `Списание админом (${admin.minecraft_nick})`, admin.minecraft_nick)
+        await logDc(nick, -amount, `Списание админом (${adminNick})`, adminNick)
+        await logAdminAction({
+          adminNick,
+          action: "take_dc",
+          targetNick: nick,
+          detail: `Списано ${amount} DC`,
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Списано ${amount} DC` })
       }
       case "ban": {
         const reason = (b.reason as string) || "Нарушение правил"
         const withHwid = Boolean(b.hwid)
         await banAccount(nick, reason, { withHwid })
+        await logAdminAction({
+          adminNick,
+          action: "ban",
+          targetNick: nick,
+          detail: `${withHwid ? "Бан + устройство (HWID)" : "Бан аккаунта"}. Причина: ${reason}`,
+          ip,
+        })
         return NextResponse.json({
           ok: true,
           message: withHwid ? `${nick} забанен вместе с устройством` : `${nick} забанен`,
@@ -136,11 +193,13 @@ export async function POST(req: Request) {
       }
       case "unban": {
         await unbanAccount(nick)
+        await logAdminAction({ adminNick, action: "unban", targetNick: nick, detail: "Разбан аккаунта", ip })
         return NextResponse.json({ ok: true, message: `${nick} разбанен` })
       }
       case "kick": {
         const reason = (b.reason as string) || "Кик администратором"
         await rconExec([`kick ${nick} ${reason}`])
+        await logAdminAction({ adminNick, action: "kick", targetNick: nick, detail: `Кик. Причина: ${reason}`, ip })
         return NextResponse.json({ ok: true, message: `${nick} кикнут` })
       }
       case "set_password": {
@@ -153,6 +212,13 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: "Игрок не найден" }, { status: 404 })
         }
         await db.query("UPDATE users SET password_hash = ? WHERE minecraft_nick = ?", [hashPassword(password), nick])
+        await logAdminAction({
+          adminNick,
+          action: "set_password",
+          targetNick: nick,
+          detail: "Смена пароля игрока",
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Пароль игрока ${nick} изменён` })
       }
       case "set_nick": {
@@ -180,6 +246,13 @@ export async function POST(req: Request) {
             // Таблица может отсутствовать — не критично.
           }
         }
+        await logAdminAction({
+          adminNick,
+          action: "set_nick",
+          targetNick: newNick,
+          detail: `Смена ника: ${nick} → ${newNick}`,
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Ник изменён: ${nick} → ${newNick}`, new_nick: newNick })
       }
       case "delete_account": {
@@ -188,6 +261,13 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: "Игрок не найден" }, { status: 404 })
         }
         await db.query("DELETE FROM users WHERE minecraft_nick = ?", [nick])
+        await logAdminAction({
+          adminNick,
+          action: "delete_account",
+          targetNick: nick,
+          detail: "Удаление аккаунта",
+          ip,
+        })
         return NextResponse.json({ ok: true, message: `Аккаунт ${nick} удалён` })
       }
       default:
