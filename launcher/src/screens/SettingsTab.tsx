@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import type { Settings } from "../types"
+import {
+  BASE_THEMES,
+  applyActiveTheme,
+  getCurrentSeason,
+  loadBaseThemeId,
+  saveBaseThemeId,
+} from "../lib/theme"
 
 const MEMORY_PRESETS = [
   { label: "4 ГБ", value: 4096, hint: "минимум" },
@@ -15,6 +22,11 @@ export default function SettingsTab() {
   const [error, setError] = useState("")
   // Автопоиск Java = пустой путь. Снятие галочки открывает ручной ввод.
   const [javaAuto, setJavaAuto] = useState(true)
+  // Выбранная обычная тема оформления (хранится в localStorage, не в Rust).
+  const [themeId, setThemeId] = useState<string>(loadBaseThemeId())
+  // Активный праздник: в праздничные дни поверх обычной темы включается
+  // сезонная палитра — предупреждаем игрока, что выбор виден не сразу.
+  const season = getCurrentSeason()
 
   useEffect(() => {
     invoke<Settings>("get_settings")
@@ -24,6 +36,13 @@ export default function SettingsTab() {
       })
       .catch((e) => setError(String(e)))
   }, [])
+
+  const chooseTheme = (id: string) => {
+    setThemeId(id)
+    saveBaseThemeId(id)
+    // Применяем сразу (в праздник сезонная палитра остаётся поверх).
+    applyActiveTheme(id)
+  }
 
   const openFolder = async (path: string, select: boolean) => {
     setError("")
@@ -85,6 +104,69 @@ export default function SettingsTab() {
       <div>
         <h2 className="text-xl font-bold">Настройки</h2>
       </div>
+
+      {/* Appearance / themes */}
+      <section className="rounded-lg border border-border bg-card/60 p-5">
+        <h3 className="text-sm font-semibold">Оформление</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Выберите тему лаунчера. В праздники (Новый год, Хэллоуин, Пасха и другие) поверх неё
+          автоматически включается праздничное оформление.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          {BASE_THEMES.map((t) => {
+            const active = themeId === t.id
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => chooseTheme(t.id)}
+                className={`flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors ${
+                  active
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:border-primary/60"
+                }`}
+                title={t.hint}
+                aria-pressed={active}
+              >
+                {/* Мини-превью палитры темы */}
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="size-5 shrink-0 rounded-full border border-white/10"
+                    style={{ background: `rgb(${t.palette.background})` }}
+                  />
+                  <span
+                    className="size-5 shrink-0 rounded-full border border-white/10"
+                    style={{ background: `rgb(${t.palette.card})` }}
+                  />
+                  <span
+                    className="size-5 shrink-0 rounded-full border border-white/10"
+                    style={{ background: `rgb(${t.palette.primary})` }}
+                  />
+                </span>
+                <span className="flex items-center justify-between gap-1">
+                  <span className={`text-sm font-medium ${active ? "text-primary" : "text-foreground"}`}>
+                    {t.title}
+                  </span>
+                  {active && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-3.5 text-primary" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="text-[11px] leading-tight text-muted">{t.hint}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {season && (
+          <p className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted">
+            {season.emoji} Сейчас активно праздничное оформление «{season.title}». Выбранная тема
+            вступит в силу после окончания праздника.
+          </p>
+        )}
+      </section>
 
       {/* Performance */}
       <section className="rounded-lg border border-border bg-card/60 p-5">

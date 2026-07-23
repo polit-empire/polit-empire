@@ -1,14 +1,17 @@
 /**
- * Сезонные (праздничные) темы лаунчера.
+ * Темы оформления лаунчера — обычные и сезонные (праздничные).
  *
- * Лаунчер автоматически меняет оформление в праздники: палитра цветов
- * применяется через CSS-переменные (см. styles.css + tailwind.config.js,
- * цвета вида `rgb(var(--pe-*) / <alpha-value>)`), а SeasonalOverlay рисует
- * лёгкие падающие частицы (снег, тыквы и т.п.).
+ * Палитра применяется через CSS-переменные (см. styles.css + tailwind.config.js,
+ * цвета вида `rgb(var(--pe-*) / <alpha-value>)`):
+ *   • BASE_THEMES — обычные темы, игрок переключает их в настройках;
+ *   • SEASONS — праздничные темы, включаются автоматически по дате и
+ *     временно накладываются поверх выбранной обычной темы.
+ * applyActiveTheme() — единая точка применения (база + праздник поверх).
+ * SeasonalOverlay рисует лёгкие падающие частицы (снег, тыквы и т.п.).
  *
  * Как добавить новый праздник: дописать элемент в массив SEASONS ниже —
  * палитру (RGB-триплеты «R G B»), приветствие, частицы и правило дат.
- * Ничего больше менять не нужно.
+ * Как добавить обычную тему: дописать элемент в BASE_THEMES.
  */
 
 export interface SeasonPalette {
@@ -172,28 +175,158 @@ export function getCurrentSeason(now: Date = new Date()): SeasonTheme | null {
   return SEASONS.find((s) => s.matches(now)) ?? null
 }
 
+/* ================================================================== */
+/* Обычные (не праздничные) темы оформления                            */
+/* ================================================================== */
+
+export interface BaseTheme {
+  id: string
+  /** Название темы для выбора в настройках. */
+  title: string
+  /** Короткое описание/подсказка. */
+  hint: string
+  palette: SeasonPalette
+}
+
 /**
- * Применяет палитру темы к документу через CSS-переменные.
- * null — сброс к значениям по умолчанию из :root (styles.css).
+ * Набор обычных тем, между которыми игрок переключается в настройках.
+ * Выбранная тема применяется всегда; в праздники сезонная палитра
+ * (SEASONS) временно накладывается поверх (см. applyActiveTheme).
+ *
+ * Первая тема — оформление по умолчанию (совпадает с :root в styles.css).
  */
-export function applySeasonTheme(theme: SeasonTheme | null): void {
-  const root = document.documentElement
-  const keys: Array<keyof SeasonPalette> = [
-    "background",
-    "card",
-    "border",
-    "foreground",
-    "muted",
-    "primary",
-    "primary-dark",
-    "danger",
-    "tint",
-  ]
-  for (const key of keys) {
-    if (theme) {
-      root.style.setProperty(`--pe-${key}`, theme.palette[key])
-    } else {
-      root.style.removeProperty(`--pe-${key}`)
-    }
+export const BASE_THEMES: BaseTheme[] = [
+  {
+    id: "graphite",
+    title: "Графит",
+    hint: "классическая тёмно-зелёная",
+    palette: { ...DEFAULT_PALETTE },
+  },
+  {
+    id: "midnight",
+    title: "Полночь",
+    hint: "сине-фиолетовая тёмная",
+    palette: {
+      background: "12 15 28",
+      card: "20 25 44",
+      border: "45 54 82",
+      foreground: "228 233 246",
+      muted: "132 143 173",
+      primary: "124 138 255",
+      "primary-dark": "96 110 235",
+      danger: "248 113 113",
+      tint: "rgba(30, 33, 82, 0.5)",
+    },
+  },
+  {
+    id: "ocean",
+    title: "Океан",
+    hint: "графит с бирюзовым акцентом",
+    palette: {
+      background: "10 20 24",
+      card: "16 29 34",
+      border: "38 58 64",
+      foreground: "226 240 242",
+      muted: "130 156 160",
+      primary: "34 197 194",
+      "primary-dark": "20 165 162",
+      danger: "248 113 113",
+      tint: "rgba(6, 58, 60, 0.5)",
+    },
+  },
+  {
+    id: "crimson",
+    title: "Багровая",
+    hint: "тёмная с красным акцентом",
+    palette: {
+      background: "20 12 14",
+      card: "31 18 21",
+      border: "66 40 45",
+      foreground: "244 233 235",
+      muted: "168 140 145",
+      primary: "239 68 68",
+      "primary-dark": "214 45 45",
+      danger: "251 146 60",
+      tint: "rgba(74, 16, 22, 0.5)",
+    },
+  },
+  {
+    id: "sandstone",
+    title: "Песчаник",
+    hint: "тёплая светлая тема",
+    palette: {
+      background: "245 242 235",
+      card: "255 253 248",
+      border: "214 208 196",
+      foreground: "38 34 28",
+      muted: "112 106 94",
+      primary: "22 143 74",
+      "primary-dark": "16 120 60",
+      danger: "204 51 43",
+      tint: "rgba(214, 224, 208, 0.6)",
+    },
+  },
+]
+
+/** Тема оформления по умолчанию (первая в списке). */
+export const DEFAULT_BASE_THEME_ID = BASE_THEMES[0].id
+
+const THEME_STORAGE_KEY = "pe-base-theme"
+
+/** Возвращает базовую тему по id (или тему по умолчанию, если id неизвестен). */
+export function getBaseTheme(id: string | null): BaseTheme {
+  return BASE_THEMES.find((t) => t.id === id) ?? BASE_THEMES[0]
+}
+
+/** Читает id выбранной темы из localStorage (устойчиво к недоступности хранилища). */
+export function loadBaseThemeId(): string {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || DEFAULT_BASE_THEME_ID
+  } catch {
+    return DEFAULT_BASE_THEME_ID
   }
+}
+
+/** Сохраняет выбор темы в localStorage. */
+export function saveBaseThemeId(id: string): void {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, id)
+  } catch {
+    // localStorage недоступен — тема просто не запомнится между запусками.
+  }
+}
+
+const PALETTE_KEYS: Array<keyof SeasonPalette> = [
+  "background",
+  "card",
+  "border",
+  "foreground",
+  "muted",
+  "primary",
+  "primary-dark",
+  "danger",
+  "tint",
+]
+
+/** Записывает палитру в CSS-переменные документа (--pe-*). */
+function applyPalette(palette: SeasonPalette): void {
+  const root = document.documentElement
+  for (const key of PALETTE_KEYS) {
+    root.style.setProperty(`--pe-${key}`, palette[key])
+  }
+}
+
+/**
+ * Применяет к документу актуальную палитру: выбранную игроком базовую тему,
+ * а в праздничные дни — сезонную палитру поверх неё. Возвращает активный
+ * праздник (или null) — удобно для отрисовки частиц/приветствия.
+ *
+ * Вызывается при старте (App) и при смене темы в настройках. Единая точка
+ * применения гарантирует, что базовая тема и праздник не конфликтуют:
+ * праздник имеет приоритет в свои даты, в остальное время видна базовая тема.
+ */
+export function applyActiveTheme(baseThemeId: string = loadBaseThemeId()): SeasonTheme | null {
+  const season = getCurrentSeason()
+  applyPalette(season ? season.palette : getBaseTheme(baseThemeId).palette)
+  return season
 }

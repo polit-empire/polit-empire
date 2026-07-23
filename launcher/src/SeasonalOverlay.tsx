@@ -1,14 +1,15 @@
 import { useEffect, useMemo } from "react"
-import { applySeasonTheme, getCurrentSeason } from "./lib/theme"
+import { applyActiveTheme, getCurrentSeason } from "./lib/theme"
 
 /**
- * Праздничное оформление лаунчера: применяет сезонную палитру (CSS-переменные)
- * и рисует поверх интерфейса лёгкие падающие частицы (снежинки, тыквы и т.п.).
+ * Праздничные частицы лаунчера: рисует поверх интерфейса лёгкие падающие
+ * символы (снежинки, тыквы и т.п.), когда активен праздник (см. SEASONS).
+ * Палитру (обычную тему + сезонную поверх) применяет applyActiveTheme —
+ * здесь только повторно синхронизируем её на маунте (тема уже применена
+ * синхронно в main.tsx до рендера).
  *
- * Рендерится один раз в main.tsx рядом с <App/> — поэтому тема работает на
- * всех экранах (вход, обновление, главный). Слой не перехватывает клики
- * (pointer-events-none), а при prefers-reduced-motion частицы скрываются
- * (см. styles.css).
+ * Слой не перехватывает клики (pointer-events-none), а при
+ * prefers-reduced-motion частицы скрываются (см. styles.css).
  */
 
 interface Particle {
@@ -33,8 +34,8 @@ export default function SeasonalOverlay() {
   const season = useMemo(() => getCurrentSeason(), [])
 
   useEffect(() => {
-    applySeasonTheme(season)
-  }, [season])
+    applyActiveTheme()
+  }, [])
 
   const particles = useMemo<Particle[]>(() => {
     if (!season) return []
