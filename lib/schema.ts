@@ -258,6 +258,44 @@ async function runMigration() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
+  // Тикеты поддержки. Игрок создаёт тикет в личном кабинете, админ отвечает
+  // в админ-панели. status: open (ждёт ответа админа) | answered (админ
+  // ответил, ждём игрока) | closed (закрыт). last_message_at — для сортировки
+  // по свежести переписки.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      minecraft_nick  VARCHAR(32) NOT NULL,
+      subject         VARCHAR(160) NOT NULL,
+      status          VARCHAR(16) NOT NULL DEFAULT 'open',
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      last_message_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tickets_nick (minecraft_nick),
+      INDEX idx_tickets_status (status),
+      INDEX idx_tickets_last (last_message_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Сообщения тикета (переписка игрока и админов). is_admin=1 — сообщение от
+  // администрации. Скриншот (необязательный) хранится файлом на диске
+  // ({STORAGE_DIR}/ticket-attachments/{id}.{ext}); в БД — только тип и
+  // расширение (attachment_mime/attachment_ext), сам файл отдаётся через
+  // /api/support/attachment/[id] с проверкой доступа.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      ticket_id       INT NOT NULL,
+      author_nick     VARCHAR(32) NOT NULL,
+      is_admin        TINYINT(1) NOT NULL DEFAULT 0,
+      body            TEXT NULL,
+      attachment_mime VARCHAR(32) NULL,
+      attachment_ext  VARCHAR(8) NULL,
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ticket_messages_ticket (ticket_id, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS launcher_versions (
       id         INT AUTO_INCREMENT PRIMARY KEY,

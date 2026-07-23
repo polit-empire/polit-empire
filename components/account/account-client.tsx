@@ -18,6 +18,7 @@ import type { MeResponse } from "@/components/site-header"
 import { jsonFetcher, postJson } from "@/lib/fetcher"
 import { cn } from "@/lib/utils"
 import { VoteSection } from "@/components/vote/vote-section"
+import { SupportSection } from "@/components/account/support-section"
 
 interface Order {
   id: number
@@ -236,6 +237,9 @@ function Dashboard({ me, onChanged }: { me: FullMe; onChanged: () => void }) {
 
       {/* Бонусы за голос на мониторингах */}
       <VoteSection variant="account" />
+
+      {/* Тикеты поддержки */}
+      <SupportSection />
 
       {/* История заказов */}
       <section className="rounded-lg border border-border bg-card">
