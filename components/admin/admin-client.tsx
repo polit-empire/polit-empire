@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Activity, Coins, LogIn, Megaphone, Package, ScrollText, Settings, Users } from "lucide-react"
+import { Activity, Coins, LifeBuoy, LogIn, Megaphone, Package, ScrollText, Settings, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PlayersPanel } from "@/components/admin/players-panel"
 import { ProductsPanel } from "@/components/admin/products-panel"
@@ -11,12 +11,14 @@ import { SettingsPanel } from "@/components/admin/settings-panel"
 import { TelemetryPanel } from "@/components/admin/telemetry-panel"
 import { AdminLogsPanel } from "@/components/admin/admin-logs-panel"
 import { AccountEventsPanel } from "@/components/admin/account-events-panel"
+import { TicketsPanel } from "@/components/admin/tickets-panel"
 
 type Tab =
   | "players"
   | "products"
   | "orders"
   | "broadcast"
+  | "tickets"
   | "telemetry"
   | "adminlogs"
   | "accounts"
@@ -26,6 +28,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "players", label: "Игроки", icon: Users },
   { id: "products", label: "Донат", icon: Package },
   { id: "orders", label: "Заказы", icon: Coins },
+  { id: "tickets", label: "Поддержка", icon: LifeBuoy },
   { id: "broadcast", label: "Рассылка", icon: Megaphone },
   { id: "telemetry", label: "Телеметрия", icon: Activity },
   { id: "adminlogs", label: "Логи админов", icon: ScrollText },
@@ -71,6 +74,7 @@ export function AdminClient({ adminNick }: { adminNick: string }) {
       {tab === "players" && <PlayersPanel />}
       {tab === "products" && <ProductsPanel />}
       {tab === "orders" && <OrdersPanel />}
+      {tab === "tickets" && <TicketsPanel />}
       {tab === "broadcast" && <BroadcastPanel />}
       {tab === "telemetry" && <TelemetryPanel />}
       {tab === "adminlogs" && <AdminLogsPanel />}
