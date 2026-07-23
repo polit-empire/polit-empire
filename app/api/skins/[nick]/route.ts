@@ -4,8 +4,13 @@ import { checkRateLimit } from "@/lib/rate-limit"
 
 /**
  * GET /api/skins/<nick>  (also accepts <nick>.png)
- * Public skin endpoint — used by SkinsRestorer on the game server
- * and by the launcher for preview.
+ * Public skin endpoint — used by the launcher/site for preview.
+ *
+ * Файлы скинов лежат в {STORAGE_DIR}/skins/<nick>.png и этот же каталог
+ * смонтирован общим Docker-томом (`skins`) в сервис скинов GML
+ * (gml-web-skins → /app/Storage/Skins), откуда authlib берёт текстуру для
+ * игры. Поэтому один и тот же файл обслуживает и предпросмотр на сайте,
+ * и скин игрока в игре (см. docker-compose.yml).
  */
 export async function GET(request: Request, { params }: { params: Promise<{ nick: string }> }) {
   const limited = checkRateLimit(request, "skin-get", 120, 60_000)

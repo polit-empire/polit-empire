@@ -22,6 +22,12 @@ services:
       PORT: ${APP_PORT:-3001}
     volumes:
       - storage:/data/politempire
+      # Скины игроков — ОБЩИЙ том с сервисом скинов GML (gml-web-skins).
+      # Сайт пишет их сюда как {nick}.png (POST /api/skin -> {STORAGE_DIR}/skins),
+      # а gml-web-skins читает их из /app/Storage/Skins/{nick}.png для authlib.
+      # Без общего тома скин, загруженный в лаунчере/ЛК, не доходил до игры —
+      # authlib отдавал default.png, и в игре был стандартный скин.
+      - skins:/data/politempire/skins
 
   # Telegram + Discord бот (politempire_bots): регистрация, 2FA, рефералка,
   # HTTP API для Minecraft-плагина (порт 8180). Работает через long polling
@@ -113,7 +119,12 @@ services:
     networks:
       - gml-network
 
-  # Сервис скинов GML
+  # Сервис скинов GML. Читает скины из /app/Storage/Skins/{ник}.png и отдаёт
+  # их authlib-профилю игры. Каталог Skins — ОБЩИЙ том с сайтом (app), поэтому
+  # скины, загруженные через лаунчер/ЛК, сразу видны в игре. Плащи и остальное
+  # содержимое Storage остаются на bind-mount ./data/TextureService.
+  # ВАЖНО: том skins инициализируется дефолтным скином (default.png) из образа
+  # при первом создании — игроки без своего скина по-прежнему получают дефолт.
   gml-web-skins:
     image: ghcr.io/gml-launcher/gml.web.skin.service:master
     container_name: gml-web-skins
@@ -123,7 +134,11 @@ services:
       - ASPNETCORE_URLS=http://+:8085;
       - TZ=Europe/Moscow
     volumes:
-      - ./data/TextureService:/app/Storage
+      # Общий с сайтом том скинов ({ник}.png). Не перекрываем весь /app/Storage
+      # bind-монтом, иначе default.png из образа не попадёт в том.
+      - skins:/app/Storage/Skins
+      # Плащи и прочее содержимое Storage — прежний персистентный каталог.
+      - ./data/TextureService/Cloak:/app/Storage/Cloak
     logging:
       driver: "json-file"
       options:
@@ -138,3 +153,5 @@ networks:
 
 volumes:
   storage:
+  # Общий том скинов: пишет сайт (app), читает сервис скинов GML (gml-web-skins).
+  skins:
