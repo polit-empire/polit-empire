@@ -124,3 +124,29 @@
     animation: none;
   }
 }
+
+/* Падающие частицы праздничного оформления (components/seasonal-theme.tsx).
+   Палитру праздника задаёт lib/season.ts переопределением переменных :root. */
+@keyframes pe-season-fall {
+  from {
+    transform: translateY(-8vh) translateX(0);
+  }
+  to {
+    transform: translateY(108vh) translateX(var(--pe-drift, 0px));
+  }
+}
+
+.pe-flake {
+  position: absolute;
+  top: 0;
+  animation-name: pe-season-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pe-flake {
+    display: none;
+  }
+}
