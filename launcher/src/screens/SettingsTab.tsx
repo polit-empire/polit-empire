@@ -110,7 +110,7 @@ export default function SettingsTab() {
             step={512}
             value={settings.memory_mb}
             onChange={(e) => setSettings({ ...settings, memory_mb: Number(e.target.value) })}
-            className="accent-[#3fb950]"
+            className="accent-primary"
           />
           <div className="flex justify-between text-xs text-muted">
             <span>2 ГБ</span>
@@ -183,7 +183,7 @@ export default function SettingsTab() {
                 type="checkbox"
                 checked={javaAuto}
                 onChange={(e) => toggleJavaAuto(e.target.checked)}
-                className="h-4 w-4 accent-[#3fb950]"
+                className="h-4 w-4 accent-primary"
               />
               <span>Автоматический поиск Java</span>
             </label>

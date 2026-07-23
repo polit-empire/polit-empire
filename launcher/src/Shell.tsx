@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { openUrl } from "@tauri-apps/plugin-opener"
@@ -6,6 +6,7 @@ import HomeTab from "./screens/HomeTab"
 import ModsTab from "./screens/ModsTab"
 import ProfileTab from "./screens/ProfileTab"
 import SettingsTab from "./screens/SettingsTab"
+import { getCurrentSeason } from "./lib/theme"
 import type { SyncProgress, VerifyResponse } from "./types"
 
 type Tab = "home" | "mods" | "profile" | "settings"
@@ -91,6 +92,8 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
   const [error, setError] = useState("")
   const pollRef = useRef<number | null>(null)
   const gamePollRef = useRef<number | null>(null)
+  // Активный праздник (если есть): эмодзи у логотипа + приветствие внизу.
+  const season = useMemo(() => getCurrentSeason(), [])
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -195,13 +198,18 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
       : null
 
   return (
-    <div className="flex h-screen flex-col bg-gradient-to-b from-emerald-950/50 via-background to-background">
+    <div className="flex h-screen flex-col bg-gradient-to-b from-[color:var(--pe-tint)] via-background to-background">
       <div className="flex min-h-0 flex-1">
         {/* Sidebar */}
         <aside className="flex w-52 shrink-0 flex-col border-r border-border bg-background/60">
           <div className="px-5 pb-4 pt-5">
             <h1 className="text-base font-bold tracking-tight">
               Polit <span className="text-primary">Empire</span>
+              {season && (
+                <span className="ml-1.5" title={season.title} aria-hidden="true">
+                  {season.emoji}
+                </span>
+              )}
             </h1>
           </div>
 
@@ -310,9 +318,7 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
           ) : gameRunning ? (
             <p className="text-xs text-muted">Игра запущена — лаунчер свёрнут в трей</p>
           ) : (
-            <p className="text-xs text-muted">
-              
-            </p>
+            <p className="text-xs text-muted">{season ? season.greeting : ""}</p>
           )}
         </div>
 
