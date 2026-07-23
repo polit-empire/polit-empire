@@ -120,25 +120,45 @@ services:
     networks:
       - gml-network
 
+  # Инициализация общего каталога скинов: копирует дефолтный скин (default.png)
+  # из образа сервиса скинов в ./data/skins, если его там ещё нет. Нужно потому,
+  # что каталог ./data/skins монтируется в gml-web-skins и перекрывает
+  # встроенный /app/Storage/Skins/default.png — без этого шага игроки без своего
+  # скина получали бы «нет текстуры» вместо стандартного скина. `cp -n` не
+  # затирает уже существующий файл; контейнер отрабатывает один раз и выходит.
+  skins-init:
+    image: ghcr.io/gml-launcher/gml.web.skin.service:master
+    container_name: gml-web-skins-init
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "mkdir -p /seed && cp -n /app/Storage/Skins/default.png /seed/default.png 2>/dev/null || true"
+    volumes:
+      - ./data/skins:/seed
+    restart: "no"
+    networks:
+      - gml-network
+
   # Сервис скинов GML. Читает скины из /app/Storage/Skins/{ник}.png и отдаёт
-  # их authlib-профилю игры. Каталог Skins — ОБЩИЙ том с сайтом (app), поэтому
-  # скины, загруженные через лаунчер/ЛК, сразу видны в игре. Плащи и остальное
-  # содержимое Storage остаются на bind-mount ./data/TextureService.
-  # ВАЖНО: том skins инициализируется дефолтным скином (default.png) из образа
-  # при первом создании — игроки без своего скина по-прежнему получают дефолт.
+  # их authlib-профилю игры. Каталог Skins — ОБЩИЙ с сайтом (app) bind-каталог
+  # ./data/skins, поэтому скины, загруженные через лаунчер/ЛК, сразу видны в
+  # игре. Дефолтный скин туда кладёт skins-init. Плащи и остальное содержимое
+  # Storage остаются на bind-mount ./data/TextureService.
   gml-web-skins:
     image: ghcr.io/gml-launcher/gml.web.skin.service:master
     container_name: gml-web-skins
     restart: unless-stopped
+    depends_on:
+      skins-init:
+        condition: service_completed_successfully
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8085;
       - TZ=Europe/Moscow
     volumes:
       # Общий с сайтом каталог скинов ({ник}.png): сайт кладёт файлы сюда,
-      # сервис отдаёт их в игру через authlib. Дефолтный скин (default.png)
-      # лежит в этом же каталоге в репозитории — игроки без своего скина
-      # получают стандартный.
+      # сервис отдаёт их в игру через authlib.
       - ./data/skins:/app/Storage/Skins
       # Плащи и прочее содержимое Storage — прежний персистентный каталог.
       - ./data/TextureService/Cloak:/app/Storage/Cloak
