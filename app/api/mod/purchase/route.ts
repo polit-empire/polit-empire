@@ -12,7 +12,7 @@ const bodySchema = z.object({ productId: z.number().int().positive() })
 /**
  * POST /api/mod/purchase   { productId }
  * Покупка товара из игрового меню за баланс DC. Привилегии и предметы
- * (kind privilege|item) списывают DC и создают заказ со статусом 'paid' —
+ * (kind privilege|item|other) списывают DC и создают заказ со статусом 'paid' —
  * он попадает в «корзину» игрока. Выдача происходит позже, когда игрок
  * нажимает «Забрать» в корзине (см. /api/mod/claim).
  *
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     })
   }
 
-  if (product.kind !== "privilege" && product.kind !== "item") {
+  if (product.kind !== "privilege" && product.kind !== "item" && product.kind !== "other") {
     return Response.json({ error: "Этот товар нельзя купить в игре" }, { status: 400 })
   }
 
