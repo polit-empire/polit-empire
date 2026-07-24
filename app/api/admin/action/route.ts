@@ -99,6 +99,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad request" }, { status: 400 })
   }
   const nick: string = b.nick.trim()
+  // Ник строго валидируем: он подставляется в шаблоны RCON-команд (выдача
+  // привилегий/DC, кик, бан). Без валидации спецсимволы/пробелы в нике могли
+  // бы стать инъекцией аргументов игровой команды (defense-in-depth: сюда
+  // попадают только уже аутентифицированные админы, но правило обязательно).
+  if (!NICK_RE.test(nick)) {
+    return NextResponse.json({ error: "Некорректный ник" }, { status: 400 })
+  }
 
   try {
     switch (action) {

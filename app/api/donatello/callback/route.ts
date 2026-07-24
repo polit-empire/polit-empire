@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getSetting } from "@/lib/donate"
 import { processDonatelloDonation } from "@/lib/donatello"
+import { safeEqual } from "@/lib/tokens"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -29,8 +30,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: "Callback key не настроен" }, { status: 500 })
   }
 
-  const providedKey = request.headers.get("x-key")
-  if (providedKey !== expectedKey) {
+  // Константное по времени сравнение ключа (без утечки через тайминг).
+  const providedKey = request.headers.get("x-key") || ""
+  if (!safeEqual(providedKey, expectedKey)) {
     console.error("[donatello] неверный X-Key в колбэке")
     return NextResponse.json({ success: false, message: "Неверный ключ" }, { status: 401 })
   }

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { getDb } from "@/lib/db"
+import { safeEqual } from "@/lib/tokens"
 
 /**
  * Управление белым списком хешей официальных сборок лаунчера (self-integrity).
@@ -23,7 +24,9 @@ function authorize(request: Request): Response | null {
     return Response.json({ error: "LAUNCHER_UPLOAD_TOKEN не задан на сервере" }, { status: 500 })
   }
   const auth = request.headers.get("authorization") || ""
-  if (auth !== `Bearer ${token}`) {
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : ""
+  // Константное по времени сравнение токена.
+  if (!provided || !safeEqual(provided, token)) {
     return Response.json({ error: "Неверный токен" }, { status: 401 })
   }
   return null

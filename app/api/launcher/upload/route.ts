@@ -3,6 +3,7 @@ import path from "path"
 import { getDb } from "@/lib/db"
 import { getLauncherDir } from "@/lib/manifest"
 import { announceLauncherRelease } from "@/lib/discord"
+import { safeEqual } from "@/lib/tokens"
 
 /**
  * POST /api/launcher/upload
@@ -28,7 +29,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "LAUNCHER_UPLOAD_TOKEN не задан на сервере" }, { status: 500 })
   }
   const auth = request.headers.get("authorization") || ""
-  if (auth !== `Bearer ${token}`) {
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : ""
+  // Константное по времени сравнение токена (без утечки через тайминг).
+  if (!provided || !safeEqual(provided, token)) {
     return Response.json({ error: "Неверный токен" }, { status: 401 })
   }
 
