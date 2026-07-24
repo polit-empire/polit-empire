@@ -38,11 +38,38 @@ const EDITABLE = new Set([
   "vote_callback_key",
 ])
 
+// Секретные ключи интеграций. Их значения НЕ отдаём в GET (даже админу):
+// раньше одна скомпрометированная админ-сессия одним запросом выгружала все
+// секреты сайта (ключи оплаты, mod_admin_key, токены/секреты вебхуков). Теперь
+// GET возвращает только признак «задан/не задан», а PATCH с пустым значением
+// секрет НЕ затирает (пустое поле в форме = «оставить как есть»).
+const SECRET = new Set([
+  "easydonate_shop_key",
+  "millida_api_key",
+  "millida_webhook_secret",
+  "donatello_api_token",
+  "donatello_callback_key",
+  "mod_admin_key",
+  "vote_callback_key",
+])
+
 export async function GET() {
   const admin = await getAdminUser()
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 })
-  const settings = await getSettings()
-  return NextResponse.json({ settings })
+
+  const raw = await getSettings()
+  const settings: Record<string, string> = {}
+  const secretsSet: Record<string, boolean> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (SECRET.has(k)) {
+      // Не раскрываем значение секрета — только факт, что он задан.
+      secretsSet[k] = Boolean(v && String(v).length > 0)
+      settings[k] = ""
+    } else {
+      settings[k] = v as string
+    }
+  }
+  return NextResponse.json({ settings, secretsSet })
 }
 
 export async function PATCH(req: Request) {
@@ -54,10 +81,12 @@ export async function PATCH(req: Request) {
 
   let updated = 0
   for (const [k, v] of Object.entries(b)) {
-    if (EDITABLE.has(k)) {
-      await setSetting(k, String(v))
-      updated++
-    }
+    if (!EDITABLE.has(k)) continue
+    // Пустое значение секретного ключа не затирает уже сохранённый секрет —
+    // так форма может слать замаскированное (пустое) поле, не стирая ключ.
+    if (SECRET.has(k) && String(v).trim() === "") continue
+    await setSetting(k, String(v))
+    updated++
   }
   return NextResponse.json({ ok: true, updated })
 }

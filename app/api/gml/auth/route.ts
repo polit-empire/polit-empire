@@ -2,7 +2,7 @@ import crypto from "crypto"
 import { z } from "zod"
 import { getDb, findUserByNick } from "@/lib/db"
 import { verifyPassword } from "@/lib/passwords"
-import { rateLimit } from "@/lib/rate-limit"
+import { rateLimit, checkRateLimit } from "@/lib/rate-limit"
 
 /**
  * POST /api/gml/auth
@@ -41,6 +41,16 @@ function offlineUuid(nick: string): string {
 }
 
 export async function POST(request: Request) {
+  // БЕЗОПАСНОСТЬ: эндпоинт вызывает backend GML (сервер-в-сервер), но физически
+  // доступен публично, а проверяет пароль из таблицы users (тот же, что у
+  // /api/account/login и админов из ADMIN_NICKS). Раньше лимит был только по
+  // нику (10/мин) — с разных IP можно было параллельно перебирать пароль
+  // одного ника, а с одного IP — множество ников без общего потолка. Добавляем
+  // лимит по IP (реальный IP берётся из X-Real-IP, см. getClientIp), чтобы
+  // закрыть перебор пароля админской учётки как вектор захвата админ-панели.
+  const ipLimited = checkRateLimit(request, "gml-auth-ip", 30, 60_000)
+  if (ipLimited) return ipLimited
+
   // GML (Gml.Backend) принимает от собственного auth-endpoint ТОЛЬКО коды 200
   // (успех) и 401/403/404 (отказ). Любой другой статус (400/500 и т.п.) панель
   // трактует как «ошибка сервера авторизации» — в т.ч. на проверочный/пустой
@@ -64,13 +74,8 @@ export async function POST(request: Request) {
     return Response.json({ Message: "Неверный ник или пароль" }, { status: 401 })
   }
 
-  // ВАЖНО: этот endpoint вызывает backend GML (сервер-к-серверу), а не сам
-  // игрок, поэтому все запросы приходят с одного IP (а внутри docker
-  // x-forwarded-for часто вовсе отсутствует). Лимит по IP превращался в
-  // общий потолок ~20 входов/мин на ВЕСЬ сервер и под нагрузкой отдавал 429,
-  // из-за чего GML периодически считал сессию недействительной.
-  // Поэтому ограничиваем перебор пароля по конкретному аккаунту (нику),
-  // а не по IP: 10 попыток в минуту на ник.
+  // Ограничиваем перебор пароля по конкретному аккаунту (нику): 10 попыток
+  // в минуту на ник — в дополнение к общему лимиту по IP выше.
   if (!rateLimit(`gml-auth:${login.toLowerCase()}`, 10, 60_000)) {
     console.warn(`[security] gml-auth rate limit exceeded for login=${login}`)
     return Response.json({ Message: "Слишком много попыток входа. Подождите минуту." }, { status: 429 })

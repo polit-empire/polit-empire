@@ -2,9 +2,21 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { getDb } from "@/lib/db"
 import { getVoteSites, getSetting, logDc } from "@/lib/donate"
 import { rconExec } from "@/lib/rcon"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+/** Ник Minecraft: те же правила, что при регистрации/скинах. */
+const NICK_RE = /^[A-Za-z0-9_]{3,32}$/
+
+/** Константное по времени сравнение строк (без утечки длины совпадения). */
+function safeStrEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a, "utf8")
+  const bb = Buffer.from(b, "utf8")
+  if (ba.length !== bb.length) return false
+  return timingSafeEqual(ba, bb)
+}
 
 /**
  * Колбэк голосования на мониторинге.
@@ -13,15 +25,20 @@ export const dynamic = "force-dynamic"
  * мониторингов разные, ник и параметры принимаются под несколькими именами:
  *   ник:  nick | name | username | player | user
  *   сайт: site | id      (слаг мониторинга из настроек)
- *   ключ: key  | secret  (секрет vote_callback_key, если он задан)
+ *   ключ: key  | secret  (секрет vote_callback_key)
  *
  * Пример URL, который надо указать в настройках мониторинга:
  *   https://politempire.ru/api/vote/callback?site=mcrate&nick={name}&key=СЕКРЕТ
  *
- * Логика: проверяем ключ → находим мониторинг → проверяем кулдаун → начисляем
- * бонус DC в общий журнал (bot_balance_log) → пишем строку в vote_log.
- * Всегда отвечаем 200 (кроме явной ошибки авторизации), чтобы мониторинг не
- * ретраил бесконечно.
+ * БЕЗОПАСНОСТЬ: раньше проверка ключа выполнялась только если vote_callback_key
+ * был задан (`if (expectedKey && key !== expectedKey)`), а по умолчанию он
+ * пустой — то есть эндпоинт был полностью открыт: любой мог начислять DC на
+ * произвольный ник (обходя кулдаун сменой ника) и подставлять произвольный ник
+ * в RCON-команду. Теперь:
+ *   • в обычном режиме секрет ОБЯЗАТЕЛЕН (не задан → 403, fail-closed);
+ *   • сравнение ключа — константное по времени (timingSafeEqual);
+ *   • ник валидируется regex ДО записи в БД и подстановки в RCON;
+ *   • добавлен IP-rate-limit.
  */
 
 function pick(params: URLSearchParams, keys: string[]): string {
@@ -33,6 +50,11 @@ function pick(params: URLSearchParams, keys: string[]): string {
 }
 
 async function handle(request: Request): Promise<Response> {
+  // Ограничиваем частоту, чтобы колбэк нельзя было использовать для перебора/
+  // спама начислений.
+  const limited = checkRateLimit(request, "vote-callback", 60, 60_000)
+  if (limited) return limited
+
   const url = new URL(request.url)
   let params = url.searchParams
 
@@ -63,6 +85,11 @@ async function handle(request: Request): Promise<Response> {
   if (!siteId || !nick) {
     return Response.json({ ok: false, error: "site и nick обязательны" }, { status: 400 })
   }
+  // Ник строго валидируем ДО любых записей/RCON: он попадёт в bot_balance_log
+  // и в шаблон RCON-команды. Без валидации это была инъекция аргументов.
+  if (!NICK_RE.test(nick)) {
+    return Response.json({ ok: false, error: "некорректный ник" }, { status: 400 })
+  }
 
   const sites = await getVoteSites()
   const site = sites.find((s) => s.id === siteId)
@@ -79,15 +106,21 @@ async function handle(request: Request): Promise<Response> {
       return Response.json({ ok: false, error: "не настроен или не передан секрет мониторинга" }, { status: 403 })
     }
     const expected = createHash("md5").update(`${nick}|${time}|${site.secret}`, "utf8").digest("hex")
-    const actualBuffer = Buffer.from(sign, "utf8")
-    const expectedBuffer = Buffer.from(expected, "utf8")
-    if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) {
+    if (!safeStrEqual(sign, expected)) {
       return Response.json({ ok: false, error: "неверная подпись" }, { status: 403 })
     }
   } else {
     // Обычный режим: мониторинг дёргает URL с общим секретным ключом.
+    // Ключ ОБЯЗАТЕЛЕН — если он не настроен, колбэк отклоняется (fail-closed),
+    // иначе эндпоинт открыт всему миру.
     const expectedKey = (await getSetting("vote_callback_key", "")).trim()
-    if (expectedKey && key !== expectedKey) {
+    if (!expectedKey) {
+      return Response.json(
+        { ok: false, error: "колбэк голосования не настроен (нет vote_callback_key)" },
+        { status: 503 },
+      )
+    }
+    if (!key || !safeStrEqual(key, expectedKey)) {
       return Response.json({ ok: false, error: "неверный ключ" }, { status: 403 })
     }
   }
@@ -107,8 +140,8 @@ async function handle(request: Request): Promise<Response> {
   }
 
   const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     null
 
   // Начисляем бонус (если > 0) и фиксируем голос.
