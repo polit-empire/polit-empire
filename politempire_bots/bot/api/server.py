@@ -240,6 +240,22 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
         return web.json_response({"error": "internal server error"}, status=500)
 
 
+async def handle_player_playtime_top(request: web.Request) -> web.Response:
+    """GET /api/player/playtime/top?limit=10 -> {"top": [{"username": "...", "playtime_seconds": N}, ...]}"""
+    try:
+        limit = int(request.query.get("limit", 10))
+        limit = min(50, max(1, limit))
+        rows = await db.fetchall(
+            "SELECT mc_username, total_seconds FROM bot_playtime ORDER BY total_seconds DESC LIMIT %s",
+            (limit,)
+        )
+        top = [{"username": r["mc_username"], "playtime_seconds": r["total_seconds"]} for r in rows]
+        return web.json_response({"top": top})
+    except Exception:
+        log.exception("Error handling player playtime top")
+        return web.json_response({"error": "internal server error"}, status=500)
+
+
 async def handle_player_balance(request: web.Request) -> web.Response:
     """GET /api/player/balance?username=... -> {"balance": 100}"""
     try:
@@ -293,6 +309,7 @@ async def start_api() -> None:
     app.router.add_post("/api/player/quit", handle_player_quit)
     app.router.add_post("/api/2fa/verify", handle_2fa_verify)
     app.router.add_get("/api/player/playtime", handle_player_playtime)
+    app.router.add_get("/api/player/playtime/top", handle_player_playtime_top)
     app.router.add_get("/api/player/balance", handle_player_balance)
 
     runner = web.AppRunner(app)

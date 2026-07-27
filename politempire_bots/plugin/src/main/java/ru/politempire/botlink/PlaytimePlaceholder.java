@@ -59,9 +59,33 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
             return "";
         }
 
-        // Наигранное время
-        // params = всё после "botlink_", например "playtime_hours" или просто "playtime"
         String key = params.toLowerCase();
+        
+        // Топ игроков (например, %botlink_top_playtime_name_1% или %botlink_top_playtime_formatted_1%)
+        if (key.startsWith("top_playtime_")) {
+            String suffix = key.substring("top_playtime_".length()); // "name_1", "formatted_1", "hours_1"
+            int lastUnderscore = suffix.lastIndexOf('_');
+            if (lastUnderscore > 0) {
+                String field = suffix.substring(0, lastUnderscore); // "name", "formatted", "hours", "seconds"
+                try {
+                    int rank = Integer.parseInt(suffix.substring(lastUnderscore + 1));
+                    if (rank >= 1 && rank <= 50) {
+                        PlaytimeManager.TopEntry entry = pm.getTopPlaytime(rank - 1);
+                        if (entry == null) return field.equals("name") ? "---" : "0";
+                        
+                        return switch (field) {
+                            case "name" -> entry.username;
+                            case "formatted" -> PlaytimeManager.formatTime(entry.seconds);
+                            case "seconds" -> String.valueOf(entry.seconds);
+                            case "hours" -> String.valueOf(entry.seconds / 3600);
+                            case "minutes" -> String.valueOf((entry.seconds % 3600) / 60);
+                            default -> "";
+                        };
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
         // Убираем префикс "playtime_" если есть, чтобы switch работал и для
         // %botlink_playtime_hours% (params="playtime_hours") и для %botlink_hours% (params="hours")
         if (key.startsWith("playtime_")) {
@@ -74,7 +98,7 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
             case "playtime", "formatted", "" -> pm.getPlaytimeFormatted(player);
             case "seconds"       -> String.valueOf(seconds);
             case "hours"         -> String.valueOf(seconds / 3600);
-            case "minutes"       -> String.valueOf((seconds % 3600) / 60);
+            case "minutes"         -> String.valueOf((seconds % 3600) / 60);
             case "total_minutes" -> String.valueOf(seconds / 60);
             default              -> "";
         };

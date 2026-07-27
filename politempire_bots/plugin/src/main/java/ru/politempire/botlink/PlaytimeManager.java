@@ -9,9 +9,18 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Logger;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 
 /**
  * Учёт наигранного времени через bot API (бот хранит в MySQL, не локально).
@@ -50,8 +59,21 @@ public final class PlaytimeManager {
     /** Кэш наигранного времени (секунды) по нику игрока. */
     private final Map<String, Integer> playtimeCache = new ConcurrentHashMap<>();
 
+    /** Кэш топа по времени. Обновляется раз в минуту. */
+    private final List<TopEntry> topPlaytime = new CopyOnWriteArrayList<>();
+    private long lastTopFetchTime = 0L;
+
     /** Кэш DC-баланса по нику игрока. */
     private final Map<String, Integer> dcCache = new ConcurrentHashMap<>();
+
+    public static class TopEntry {
+        public final String username;
+        public final int seconds;
+        public TopEntry(String username, int seconds) {
+            this.username = username;
+            this.seconds = seconds;
+        }
+    }
 
     private PlaytimeManager(BotLinkPlugin plugin, ApiClient api) {
         this.plugin = plugin;
@@ -126,6 +148,19 @@ public final class PlaytimeManager {
                 }
             });
         }
+        
+        // Обновляем топ раз в минуту
+        if (System.currentTimeMillis() - lastTopFetchTime > 60_000L) {
+            lastTopFetchTime = System.currentTimeMillis();
+            fetchTopPlaytimeAsync(10).thenAccept(top -> {
+                if (top != null) {
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        topPlaytime.clear();
+                        topPlaytime.addAll(top);
+                    });
+                }
+            });
+        }
     }
 
     // ---- Публичный API для других плагинов ----
@@ -192,6 +227,38 @@ public final class PlaytimeManager {
                 });
     }
 
+    /**
+     * Асинхронный запрос топа плейтайма к bot API.
+     * @return CompletableFuture<List<TopEntry>>
+     */
+    public CompletableFuture<List<TopEntry>> fetchTopPlaytimeAsync(int limit) {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/player/playtime/top?limit=" + limit))
+                .timeout(Duration.ofSeconds(5))
+                .header("X-Api-Secret", secret)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .handle((resp, err) -> {
+                    if (err != null || resp == null || resp.statusCode() != 200) {
+                        return null;
+                    }
+                    return parseTopPlaytime(resp.body());
+                });
+    }
+
+    /**
+     * Получить топ игрока по индексу (от 0).
+     * @return TopEntry или null, если такого места нет.
+     */
+    public TopEntry getTopPlaytime(int index) {
+        if (index >= 0 && index < topPlaytime.size()) {
+            return topPlaytime.get(index);
+        }
+        return null;
+    }
+
     // ---- DC-баланс ----
 
     /**
@@ -243,6 +310,24 @@ public final class PlaytimeManager {
                 .compile("\"playtime_seconds\"\\s*:\\s*(\\d+)")
                 .matcher(json);
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    }
+
+    private static List<TopEntry> parseTopPlaytime(String jsonString) {
+        try {
+            JsonObject json = JsonParser.parseString(jsonString).getAsJsonObject();
+            if (json.has("top") && json.get("top").isJsonArray()) {
+                JsonArray arr = json.getAsJsonArray("top");
+                List<TopEntry> list = new ArrayList<>();
+                for (JsonElement e : arr) {
+                    JsonObject obj = e.getAsJsonObject();
+                    String username = obj.has("username") ? obj.get("username").getAsString() : "Unknown";
+                    int secs = obj.has("playtime_seconds") ? obj.get("playtime_seconds").getAsInt() : 0;
+                    list.add(new TopEntry(username, secs));
+                }
+                return list;
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 
     private static int parseBalance(String json) {
