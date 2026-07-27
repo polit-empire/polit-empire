@@ -2,8 +2,10 @@ package ru.politempire.politeshopdc;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-
 /**
  * PoliteShopDC — маленький плагин-мост между сайтом донат-магазина и
  * PlaceholderAPI. Даёт плейсхолдер %donatecoin% с балансом DC игрока.
@@ -11,7 +13,7 @@ import org.bukkit.plugin.java.JavaPlugin;
  * Работает на гибридных серверах (Mohist/Arclight/Banner и т.п.) рядом с
  * NeoForge-модом магазина, а также на чистом Paper/Spigot.
  */
-public final class PoliteShopPlugin extends JavaPlugin {
+public final class PoliteShopPlugin extends JavaPlugin implements Listener {
     private BalanceService service;
     private String loadingText = "...";
 
@@ -33,7 +35,7 @@ public final class PoliteShopPlugin extends JavaPlugin {
                     + "%donatecoin% будет показывать '" + loadingText + "'. Заполни конфиг и /papi reload.");
         }
 
-        int period = Math.max(5, getConfig().getInt("refresh-seconds", 15)) * 20;
+        int period = Math.max(5, getConfig().getInt("refresh-seconds", 600)) * 20;
         // Периодически обновляем балансы всех онлайн-игроков (в асинхронном потоке).
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
@@ -41,7 +43,14 @@ public final class PoliteShopPlugin extends JavaPlugin {
             }
         }, 40L, period);
 
+        getServer().getPluginManager().registerEvents(this, this);
+
         getLogger().info("PoliteShopDC включён. Плейсхолдер: %donatecoin%");
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        requestRefresh(event.getPlayer().getName());
     }
 
     private void reloadFromConfig() {

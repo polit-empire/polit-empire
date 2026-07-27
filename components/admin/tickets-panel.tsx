@@ -88,7 +88,7 @@ export function TicketsPanel() {
       return `/api/admin/tickets?${p.toString()}`
     },
     jsonFetcher,
-    { revalidateFirstPage: false, refreshInterval: 30_000 },
+    { revalidateFirstPage: false, refreshInterval: 120_000 },
   )
 
   const tickets = useMemo(() => (data ?? []).flatMap((p) => p.tickets), [data])
@@ -243,7 +243,7 @@ function TicketDetail({
   const { data, mutate, isLoading } = useSWR<{ ticket: TicketRow; messages: TicketMessage[] }>(
     `/api/admin/tickets/${ticketId}`,
     jsonFetcher,
-    { refreshInterval: 20_000 },
+    { refreshInterval: 120_000 },
   )
   const [body, setBody] = useState("")
   const [file, setFile] = useState<File | null>(null)

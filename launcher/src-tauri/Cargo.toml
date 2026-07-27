@@ -1,6 +1,6 @@
 [package]
 name = "polit-empire-launcher"
-version = "2.0.0"
+version = "2.2.1"
 description = "Официальный лаунчер Minecraft-сервера Polit Empire"
 edition = "2021"
 

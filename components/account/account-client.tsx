@@ -284,7 +284,7 @@ function CartSection({ onChanged }: { onChanged: () => void }) {
   const { data, mutate: mutateCart } = useSWR<{ items: CartItem[] }>("/api/account/cart", jsonFetcher, {
     // Корзина синхронизирована с модом — освежаем её периодически, чтобы
     // покупки из игры появлялись на сайте без перезагрузки.
-    refreshInterval: 15_000,
+    refreshInterval: 300_000,
     shouldRetryOnError: false,
   })
   const items = data?.items ?? []

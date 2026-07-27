@@ -28,12 +28,6 @@
     <dependency org="commons-logging" name="commons-logging" rev="1.2" transitive="false"/>
     <dependency org="io.netty" name="netty-handler" rev="4.1.97.Final" transitive="false"/>
     <dependency org="io.netty" name="netty-codec" rev="4.1.97.Final" transitive="false"/>
-    <dependency org="io.netty" name="netty-transport-native-epoll" rev="4.1.97.Final" transitive="false">
-      <artifact name="netty-transport-native-epoll" classifier="linux-aarch_64" ext="jar"/>
-    </dependency>
-    <dependency org="io.netty" name="netty-transport-native-epoll" rev="4.1.97.Final" transitive="false">
-      <artifact name="netty-transport-native-epoll" classifier="linux-x86_64" ext="jar"/>
-    </dependency>
     <dependency org="io.netty" name="netty-transport-classes-epoll" rev="4.1.97.Final" transitive="false"/>
     <dependency org="io.netty" name="netty-transport-native-unix-common" rev="4.1.97.Final" transitive="false"/>
     <dependency org="io.netty" name="netty-transport" rev="4.1.97.Final" transitive="false"/>
@@ -63,35 +57,83 @@
     <dependency org="org.joml" name="joml" rev="1.10.5" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-freetype" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-freetype" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-freetype" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-freetype" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-freetype" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-freetype" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-freetype" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-freetype" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-glfw" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-glfw" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-glfw" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-glfw" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-glfw" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-glfw" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-glfw" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-glfw" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-jemalloc" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-jemalloc" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-jemalloc" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-jemalloc" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-jemalloc" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-jemalloc" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-jemalloc" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-jemalloc" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-openal" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-openal" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-openal" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-openal" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-openal" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-openal" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-openal" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-openal" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-opengl" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-opengl" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-opengl" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-opengl" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-opengl" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-opengl" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-opengl" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-opengl" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-stb" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-stb" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-stb" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-stb" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-stb" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-stb" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-stb" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-stb" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl-tinyfd" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl-tinyfd" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl-tinyfd" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl-tinyfd" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-tinyfd" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-tinyfd" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl-tinyfd" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl-tinyfd" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lwjgl" name="lwjgl" rev="3.3.3" transitive="false"/>
     <dependency org="org.lwjgl" name="lwjgl" rev="3.3.3" transitive="false">
-      <artifact name="lwjgl" classifier="natives-linux" ext="jar"/>
+      <artifact name="lwjgl" classifier="natives-windows" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl" classifier="natives-windows-arm64" ext="jar"/>
+    </dependency>
+    <dependency org="org.lwjgl" name="lwjgl" rev="3.3.3" transitive="false">
+      <artifact name="lwjgl" classifier="natives-windows-x86" ext="jar"/>
     </dependency>
     <dependency org="org.lz4" name="lz4-java" rev="1.8.0" transitive="false"/>
     <dependency org="net.neoforged" name="accesstransformers" rev="10.0.1" transitive="false"/>

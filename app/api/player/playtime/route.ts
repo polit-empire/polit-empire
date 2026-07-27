@@ -40,36 +40,3 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "Failed to fetch playtime from bot API" }, { status: 502 })
   }
 }
-
-/**
- * POST /api/player/playtime
- * Тело: { username: "...", total_seconds: N }
- * Проксирует запрос обновления наигранного времени от лаунчера в bot API.
- */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const apiPort = process.env.API_PORT || "8180"
-    const apiSecret = process.env.API_SECRET || process.env.BOT_API_SECRET || ""
-
-    if (!apiSecret) {
-      return Response.json({ error: "API secret not configured" }, { status: 500 })
-    }
-
-    const url = `http://127.0.0.1:${apiPort}/api/player/playtime`
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Api-Secret": apiSecret,
-        Accept: "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
-    })
-    const data = await resp.json()
-    return Response.json(data, { status: resp.status })
-  } catch {
-    return Response.json({ error: "Failed to update playtime in bot API" }, { status: 502 })
-  }
-}

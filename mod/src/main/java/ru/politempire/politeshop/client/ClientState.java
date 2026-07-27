@@ -31,10 +31,10 @@ public final class ClientState {
         sendBalanceToServer(b);
     }
 
-    /** Асинхронно обновляет баланс не чаще раза в 5 секунд. */
+    /** Асинхронно обновляет баланс не чаще раза в 10 минут (600 сек). */
     public static void refreshThrottled() {
         long now = System.currentTimeMillis();
-        if (now - lastFetch < 5000) return;
+        if (now - lastFetch < 600000) return;
         lastFetch = now;
         refreshNow();
     }

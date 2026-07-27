@@ -5,7 +5,7 @@ forgejunitdev
 --assetIndex
 asset-index
 --assetsDir
-/home/vercel-sandbox/.gradle/caches/minecraft/assets
+C:\Users\Artem\.gradle\caches\minecraft\assets
 --gameDir
 .
 --fml.fmlVersion

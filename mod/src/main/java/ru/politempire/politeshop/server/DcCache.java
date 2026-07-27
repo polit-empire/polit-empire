@@ -105,8 +105,8 @@ public final class DcCache {
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
-        // Раз в 200 тиков (~10 сек) обновляем балансы всех онлайн-игроков.
-        if (++tickCounter < 200) return;
+        // Раз в 12000 тиков (10 мин) обновляем балансы всех онлайн-игроков.
+        if (++tickCounter < 12000) return;
         tickCounter = 0;
         MinecraftServer server = event.getServer();
         if (server == null) return;

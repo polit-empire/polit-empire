@@ -129,7 +129,7 @@ function AnticheatView() {
   const [q, setQ] = useState("")
   const key = `/api/admin/telemetry?section=anticheat${q ? `&q=${encodeURIComponent(q)}` : ""}`
   const { data, isLoading, mutate, isValidating } = useSWR<{ events: AcEvent[] }>(key, jsonFetcher, {
-    refreshInterval: 15_000,
+    refreshInterval: 30_000,
   })
   const events = data?.events ?? []
 
@@ -217,7 +217,7 @@ function ErrorsView() {
   const [q, setQ] = useState("")
   const key = `/api/admin/telemetry?section=errors${q ? `&q=${encodeURIComponent(q)}` : ""}`
   const { data, isLoading, mutate, isValidating } = useSWR<{ events: ErrEvent[] }>(key, jsonFetcher, {
-    refreshInterval: 15_000,
+    refreshInterval: 30_000,
   })
   const events = data?.events ?? []
 

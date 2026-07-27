@@ -1,8 +1,8 @@
 JVM Args:          "-Xmx4g"
-Run Args:          "-log=error", "--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--variable-renaming=jad", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "--indent-string=    ", "-cfg", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/listLibraries/libraries.txt", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/rename/outputs.jar", "/opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/decompile/outputs.jar"
-JVM:               /usr/lib/jvm/java-21-openjdk-amd64/bin/java
-Classpath:         /root/.gradle/caches/modules-2/files-2.1/org.vineflower/vineflower/1.10.1/4f48c5947b21f9ebc743e7c80215ee839d3dc668/vineflower-1.10.1.jar
-Working Dir:       /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/decompile
+Run Args:          "-log=error", "--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--variable-renaming=jad", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "--indent-string=    ", "-cfg", "D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\listLibraries\libraries.txt", "D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\rename\outputs.jar", "D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\outputs.jar"
+JVM:               C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\bin\java.exe
+Classpath:         C:\Users\Artem\.gradle\caches\modules-2\files-2.1\org.vineflower\vineflower\1.10.1\4f48c5947b21f9ebc743e7c80215ee839d3dc668\vineflower-1.10.1.jar
+Working Dir:       D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile
 Main Class:        org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler
-Program log file:  /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/decompile/log.log
-Output file:       /opt/polit-empire/mod/build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/decompile/outputs.jar
+Program log file:  D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\log.log
+Output file:       D:\polit-empire\mod\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\outputs.jar

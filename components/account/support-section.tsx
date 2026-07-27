@@ -214,7 +214,7 @@ function TicketThread({ ticketId, onBack }: { ticketId: number; onBack: () => vo
   const { data, mutate, isLoading } = useSWR<{ ticket: TicketListItem; messages: TicketMessage[] }>(
     `/api/account/tickets/${ticketId}`,
     jsonFetcher,
-    { refreshInterval: 20_000, shouldRetryOnError: false },
+    { refreshInterval: 300_000, shouldRetryOnError: false },
   )
   const [body, setBody] = useState('')
   const [file, setFile] = useState<File | null>(null)

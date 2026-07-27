@@ -41,7 +41,7 @@ function PlayerHead({ name, size = 44 }: { name: string; size?: number }) {
 
 export function ServerStatus() {
   const { data, isLoading } = useSWR<McStatus>("/api/mc-status", fetcher, {
-    refreshInterval: 30_000,
+    refreshInterval: 180_000,
     revalidateOnFocus: true,
   })
 
