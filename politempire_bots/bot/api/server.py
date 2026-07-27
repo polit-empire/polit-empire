@@ -321,8 +321,14 @@ async def _playtime_ticker() -> None:
             log.exception("playtime ticker error")
 
 
+async def handle_root(request: web.Request) -> web.Response:
+    return web.json_response({"status": "ok", "message": "PolitEmpire Bot API is running!"})
+
+
 async def start_api() -> None:
-    app = web.Application(middlewares=[auth_middleware])
+    app = web.Application()
+    app.middlewares.append(auth_middleware)
+    app.router.add_get("/", handle_root)
     app.router.add_get("/api/health", handle_health)
     app.router.add_post("/api/player/join", handle_player_join)
     app.router.add_post("/api/player/quit", handle_player_quit)
