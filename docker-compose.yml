@@ -41,7 +41,7 @@ services:
     network_mode: host
     env_file: ./politempire_bots/.env
 
-  # БД — внешний MySQL (82.117.87.152:3306), локальный контейнер не нужен.
+  # БД — внешний MySQL (85.192.56.40:3306), локальный контейнер не нужен.
   # Настройки подключения задаются в .env (MYSQL_*).
 
   # ============================================================
@@ -63,6 +63,14 @@ services:
       - ./data/GmlBackend:/root/${GML_PROJECT_NAME:-PolitEmpire}
       - ./data/backups:/root/${GML_PROJECT_NAME:-PolitEmpire}/backups
       - ./data/GmlDatabase:/app/database
+    # Политика DNS: politempire.org уходит на Cloudflare. GML вызывает
+    # https://politempire.org/api/gml/auth для входа — Cloudflare видит запрос
+    # с публичного IP этого же сервера и отвечает HTML-челленджем (JS-капча),
+    # а не JSON. GML не может прочитать ответ и отдаёт в лаунчер «Ошибка
+    # обмена данными с сервисом авторизации». Принудительно резолвим
+    # politempire.org в прямой IP сервера (минуя Cloudflare).
+    extra_hosts:
+      - "politempire.org:85.192.56.40"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8082;

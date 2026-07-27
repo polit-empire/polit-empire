@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db"
 import { getOrder, deliverOrder } from "@/lib/donate"
 import { getEasyDonateConfig, easydonateSign } from "@/lib/payments"
 import { notifyAdmins } from "@/lib/telegram"
+import { safeEqual } from "@/lib/tokens"
 
 /**
  * POST /api/shop/webhook
@@ -41,8 +42,9 @@ export async function POST(request: Request) {
   }
 
   // EasyDonate передаёт cost как число; для подписи используем исходную форму.
+  // Сравнение подписи — константное по времени (timingSafeEqual через safeEqual).
   const expected = easydonateSign(paymentId, String(cost), customer, shopKey)
-  if (expected.toLowerCase() !== signature.toLowerCase()) {
+  if (!safeEqual(expected.toLowerCase(), signature.toLowerCase())) {
     console.warn("[shop-webhook] bad signature for payment", paymentId)
     return Response.json({ error: "bad signature" }, { status: 403 })
   }

@@ -414,6 +414,14 @@ function PurchaseModal({
     requiresConfirmation?: boolean
   } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [promoCode, setPromoCode] = useState("")
+  const [promoDiscount, setPromoDiscount] = useState<{
+    discount_type: "percent" | "fixed"
+    discount_value: number
+    discountAmount: number
+  } | null>(null)
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [promoErr, setPromoErr] = useState<string | null>(null)
 
   const isDcPurchase = Boolean(
     product && (product.kind === "privilege" || product.kind === "item" || product.kind === "other")
@@ -422,12 +430,59 @@ function PurchaseModal({
   const priceRub = product ? product.priceRub : customDc ?? 0
   const costDc = product?.priceRub ?? 0
   const notEnough = isDcPurchase && balance < costDc
+  const discountedPriceRub = Math.max(0, priceRub - (promoDiscount?.discountAmount ?? 0))
+
+  async function validatePromo() {
+    if (!promoCode.trim()) return
+    setPromoBusy(true)
+    setPromoErr(null)
+    try {
+      const res = await postJson<{
+        ok: boolean
+        error?: string
+        discount_type?: "percent" | "fixed"
+        discount_value?: number
+        discountAmount?: number
+      }>("/api/donate/validate-promo", {
+        code: promoCode.trim(),
+        amountRub: priceRub,
+        productId: product?.id,
+      })
+      if (!res.ok) {
+        setPromoErr(res.error || "Промокод не действует")
+        setPromoDiscount(null)
+      } else {
+        setPromoDiscount({
+          discount_type: res.discount_type!,
+          discount_value: res.discount_value!,
+          discountAmount: res.discountAmount!,
+        })
+        setPromoErr(null)
+      }
+    } catch {
+      setPromoErr("Ошибка проверки промокода")
+      setPromoDiscount(null)
+    } finally {
+      setPromoBusy(false)
+    }
+  }
+
+  function clearPromo() {
+    setPromoCode("")
+    setPromoDiscount(null)
+    setPromoErr(null)
+  }
 
   async function buy(method: "mydonate" | "easydonate" | "millida" | "donatello" | "dc") {
     setErr(null)
     setBusy(method)
     try {
-      const body = product ? { productId: product.id, method } : { customDc, method }
+      const body: Record<string, unknown> = product
+        ? { productId: product.id, method }
+        : { customDc, method }
+      if (promoDiscount && promoCode.trim()) {
+        body.promoCode = promoCode.trim().toUpperCase()
+      }
       const res = await postJson<{
         ok?: boolean
         error?: string
@@ -582,7 +637,14 @@ function PurchaseModal({
               <>
                 <div className="mb-1 flex items-baseline justify-between border-b border-border pb-3">
                   <span className="text-sm text-muted-foreground">Стоимость</span>
-                  <span className="font-mono text-xl font-bold">{costDc} DC</span>
+                  <div className="flex items-baseline gap-2">
+                    {promoDiscount && (
+                      <span className="text-sm text-muted-foreground line-through">{costDc} DC</span>
+                    )}
+                    <span className="font-mono text-xl font-bold">
+                      {promoDiscount ? Math.max(0, costDc - promoDiscount.discountAmount) : costDc} DC
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-baseline justify-between text-sm">
                   <span className="text-muted-foreground">Ваш баланс</span>
@@ -590,6 +652,54 @@ function PurchaseModal({
                     {balance} DC
                   </span>
                 </div>
+
+                {/* Промокод */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Промокод</label>
+                  {promoDiscount ? (
+                    <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/10 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-semibold text-primary">{promoCode.toUpperCase()}</span>
+                        <span className="text-xs text-primary">
+                          −{promoDiscount.discount_type === "percent"
+                            ? `${promoDiscount.discount_value}%`
+                            : `${promoDiscount.discount_value} DC`}
+                          {' '}({promoDiscount.discountAmount} DC)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearPromo}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Убрать
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && validatePromo()}
+                        placeholder="Введите код"
+                        maxLength={32}
+                        className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        disabled={promoBusy || !promoCode.trim()}
+                        onClick={validatePromo}
+                        className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:border-primary disabled:opacity-50"
+                      >
+                        {promoBusy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                        Применить
+                      </button>
+                    </div>
+                  )}
+                  {promoErr && <p className="text-xs text-destructive">{promoErr}</p>}
+                </div>
+
                 {err && <p className="text-sm text-destructive">{err}</p>}
 
                 {notEnough ? (
@@ -625,8 +735,63 @@ function PurchaseModal({
               <>
                 <div className="mb-1 flex items-baseline justify-between border-b border-border pb-3">
                   <span className="text-sm text-muted-foreground">К оплате</span>
-                  <span className="font-mono text-xl font-bold">{priceRub} ₽</span>
+                  <div className="flex items-baseline gap-2">
+                    {promoDiscount && (
+                      <span className="text-sm text-muted-foreground line-through">{priceRub} ₽</span>
+                    )}
+                    <span className="font-mono text-xl font-bold">
+                      {promoDiscount ? discountedPriceRub : priceRub} ₽
+                    </span>
+                  </div>
                 </div>
+
+                {/* Промокод */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Промокод</label>
+                  {promoDiscount ? (
+                    <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/10 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-semibold text-primary">{promoCode.toUpperCase()}</span>
+                        <span className="text-xs text-primary">
+                          −{promoDiscount.discount_type === "percent"
+                            ? `${promoDiscount.discount_value}%`
+                            : `${promoDiscount.discount_value} ₽`}
+                          {' '}({promoDiscount.discountAmount} ₽)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearPromo}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Убрать
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && validatePromo()}
+                        placeholder="Введите код"
+                        maxLength={32}
+                        className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        disabled={promoBusy || !promoCode.trim()}
+                        onClick={validatePromo}
+                        className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:border-primary disabled:opacity-50"
+                      >
+                        {promoBusy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                        Применить
+                      </button>
+                    </div>
+                  )}
+                  {promoErr && <p className="text-xs text-destructive">{promoErr}</p>}
+                </div>
+
                 {err && <p className="text-sm text-destructive">{err}</p>}
 
                 <button

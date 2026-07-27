@@ -19,7 +19,7 @@ pub fn api_base() -> String {
     api_direct_base()
 }
 
-/// Прямой домен сайта (82.117.87.152, минуя Cloudflare).
+/// Прямой домен сайта (85.192.56.40, минуя Cloudflare).
 fn api_direct_base() -> String {
     crate::obf_str!("https://politempire.ru")
 }
@@ -76,7 +76,7 @@ pub async fn resolve_api_host() {
 /// и игрок получал «недействительная сессия».
 ///
 /// Теперь ВЕСЬ трафик GML (вход + профиль + authlib) идёт через прямой домен
-/// politempire.ru (82.117.87.152), минуя Cloudflare. nginx на сервере
+/// politempire.ru (85.192.56.40), минуя Cloudflare. nginx на сервере
 /// проксирует весь `/api/v1/` на GML-бэкенд (127.0.0.1:5003), поэтому и
 /// signin, и profiles/info, и sessionserver/join|hasJoined попадают в один и
 /// тот же инстанс с общим хранилищем сессий.

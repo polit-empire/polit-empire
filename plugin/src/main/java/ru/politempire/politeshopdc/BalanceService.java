@@ -22,9 +22,11 @@ public final class BalanceService {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
     private final Map<String, Long> balances = new ConcurrentHashMap<>();
+    private final Map<String, Long> fetchedAt = new ConcurrentHashMap<>();
 
     private volatile String siteUrl;
     private volatile String adminKey;
+    private volatile long minIntervalMs = 60_000;
 
     public BalanceService(String siteUrl, String adminKey) {
         update(siteUrl, adminKey);
@@ -47,14 +49,30 @@ public final class BalanceService {
 
     public void forget(String nick) {
         balances.remove(nick.toLowerCase());
+        fetchedAt.remove(nick.toLowerCase());
+    }
+
+    public void setMinIntervalMs(long ms) {
+        this.minIntervalMs = Math.max(0, ms);
     }
 
     /**
      * Синхронный запрос баланса с сайта. Должен вызываться ТОЛЬКО из
      * асинхронного потока. Результат кладётся в кэш.
+     *
+     * Если значение обновлялось меньше minIntervalMs назад — запрос
+     * пропускается. Периодическая задача проходит по всем онлайн-игрокам,
+     * и без этого фильтра каждый игрок давал запрос раз в refresh-seconds
+     * даже когда его баланс никто не смотрит. Чтобы обновить баланс
+     * принудительно (он изменился прямо сейчас) — сначала forget(nick).
      */
     public void refresh(String nick) {
         if (!isConfigured()) return;
+        String key = nick.toLowerCase();
+        long now = System.currentTimeMillis();
+        Long last = fetchedAt.get(key);
+        if (last != null && now - last < minIntervalMs) return;
+        fetchedAt.put(key, now);
         try {
             String body = "{\"action\":\"get\",\"nick\":\"" + escape(nick) + "\"}";
             HttpRequest req = HttpRequest.newBuilder()

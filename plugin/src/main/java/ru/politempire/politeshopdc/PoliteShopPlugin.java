@@ -62,6 +62,7 @@ public final class PoliteShopPlugin extends JavaPlugin implements Listener {
         } else {
             service.update(site, key);
         }
+        service.setMinIntervalMs(Math.max(5, getConfig().getInt("refresh-seconds", 600)) * 1000L);
     }
 
     /** Запрос на фоновое обновление баланса конкретного игрока. */

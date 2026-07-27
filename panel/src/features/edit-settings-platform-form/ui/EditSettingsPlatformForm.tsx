@@ -93,19 +93,18 @@ export const EditSettingsPlatformForm: React.FC<{ showOnlyApiKeys?: boolean }> =
                       <div className="flex flex-row items-center gap-x-1 mb-2">
                         <UsersIcon className="mr-2 h-4 w-4"/>
                         <h6 className="text-sm font-bold">
-                          Регистрация новых пользователей (
-                          {watchRegistration ? 'Разрешена' : 'Запрещена'})
+                          Регистрация новых пользователей (Запрещена)
                         </h6>
                       </div>
                       <p className="text-sm text-gray-700 dark:text-gray-300">
-                        Позволяет регистрироваться новым пользователям на сайте
+                        Регистрация заблокирована администратором
                       </p>
                     </div>
                     <FormControl>
                       {isLoading ? (
                         <Skeleton className="w-12 h-6"/>
                       ) : (
-                        <Switch checked={field.value} onCheckedChange={field.onChange}/>
+                        <Switch checked={false} disabled />
                       )}
                     </FormControl>
                   </FormItem>

@@ -9,6 +9,7 @@ import {
   logDc,
   deliverOrder,
 } from "@/lib/donate"
+import { validatePromoCode, recordPromoUse, getPromoByCode } from "@/lib/promo"
 import { createMyDonatePayment, createEasyDonatePayment, createMillidaPayment, createDonatelloPayment } from "@/lib/payments"
 import { notifyAdmins } from "@/lib/telegram"
 
@@ -28,6 +29,7 @@ const bodySchema = z.object({
   productId: z.number().int().positive().optional(),
   customDc: z.number().int().min(1).max(100000).optional(),
   method: z.enum(["mydonate", "easydonate", "millida", "donatello", "dc"]),
+  promoCode: z.string().max(32).optional(),
 })
 
 export async function POST(request: Request) {
@@ -46,8 +48,11 @@ export async function POST(request: Request) {
   }
   if (!parsed.success) return Response.json({ error: "Некорректный запрос" }, { status: 400 })
 
-  const { productId, customDc, method } = parsed.data
+  const { productId, customDc, method, promoCode } = parsed.data
   const nick = user.minecraft_nick
+
+  /* ---------- Валидация промокода ---------- */
+  let promoDiscount: { promoId: number; discountAmount: number } | null = null
 
   /* ---------- Произвольное пополнение DC ---------- */
   if (customDc && !productId) {
@@ -56,11 +61,34 @@ export async function POST(request: Request) {
     }
     const bonus = await computeDcBonus(customDc)
     const totalDc = customDc + bonus
-    // Donatello работает в гривнах: 1₴ = 1 DC (до бонуса). Бонус применяется
-    // на сайте, так же как с рублёвыми провайдерами.
-    const amountRub = method === "donatello" ? customDc : customDc // UAH для Donatello, RUB для остальных
-    const title = `Пополнение ${customDc} DC${bonus ? ` (+${bonus} бонус)` : ""}`
-    return startMoneyOrder({ nick, productId: null, kind: "dc", title, amountRub, dcAmount: totalDc, method })
+    const amountRub = method === "donatello" ? customDc : customDc
+
+    // Валидация промокода для произвольного пополнения
+    if (promoCode && promoCode.trim()) {
+      const promo = await validatePromoCode(promoCode.trim(), nick, amountRub, undefined)
+      if (!promo.ok) {
+        return Response.json({ error: promo.error }, { status: 400 })
+      }
+      const promoRow = await getPromoByCode(promoCode.trim())
+      if (promoRow) {
+        promoDiscount = { promoId: promoRow.id, discountAmount: promo.discountAmount! }
+      }
+    }
+
+    const finalAmount = promoDiscount ? Math.max(0, amountRub - promoDiscount.discountAmount) : amountRub
+    const bonusStr = bonus ? ` (+${bonus} бонус)` : ""
+    const promoStr = promoDiscount ? ` (промокод −${promoDiscount.discountAmount}₽)` : ""
+    const title = `Пополнение ${customDc} DC${bonusStr}${promoStr}`
+    return startMoneyOrder({
+      nick,
+      productId: null,
+      kind: "dc",
+      title,
+      amountRub: finalAmount,
+      dcAmount: totalDc,
+      method,
+      promoDiscount,
+    })
   }
 
   /* ---------- Товар из каталога ---------- */
@@ -76,22 +104,42 @@ export async function POST(request: Request) {
       return Response.json({ error: "Этот товар покупается только за DC" }, { status: 400 })
     }
     const costDc = product.price_rub // цена задаётся в DC
-    const balance = await getDcBalance(nick)
-    if (balance < costDc) {
-      return Response.json({ error: `Недостаточно DC: нужно ${costDc}, у вас ${balance}` }, { status: 400 })
+
+    // Валидация промокода для DC-покупок
+    let finalCostDc = costDc
+    if (promoCode && promoCode.trim()) {
+      const promo = await validatePromoCode(promoCode.trim(), nick, costDc, product.id)
+      if (!promo.ok) {
+        return Response.json({ error: promo.error }, { status: 400 })
+      }
+      const promoRow = await getPromoByCode(promoCode.trim())
+      if (promoRow) {
+        promoDiscount = { promoId: promoRow.id, discountAmount: promo.discountAmount! }
+        finalCostDc = Math.max(0, costDc - promo.discountAmount!)
+      }
     }
+
+    const balance = await getDcBalance(nick)
+    if (balance < finalCostDc) {
+      return Response.json({ error: `Недостаточно DC: нужно ${finalCostDc}, у вас ${balance}` }, { status: 400 })
+    }
+    const titleSuffix = promoDiscount ? ` (промокод −${promoDiscount.discountAmount} DC)` : ""
     const orderId = await createOrder({
       nick,
       productId: product.id,
       kind: product.kind,
-      title: `${product.name} (за DC)`,
+      title: `${product.name} (за DC)${titleSuffix}`,
       amountRub: 0,
       dcAmount: 0,
       method: "dc",
       status: "paid",
     })
+    // Записываем использование промокода
+    if (promoDiscount) {
+      await recordPromoUse(promoDiscount.promoId, nick, orderId)
+    }
     // Списываем DC и выдаём товар по RCON.
-    await logDc(nick, -costDc, `Покупка «${product.name}» (заказ #${orderId})`, "site")
+    await logDc(nick, -finalCostDc, `Покупка «${product.name}» (заказ #${orderId})`, "site")
     try {
       await deliverOrder(orderId, "site")
     } catch (err) {
@@ -112,15 +160,32 @@ export async function POST(request: Request) {
     if (method === "dc") return Response.json({ error: "Недопустимый способ оплаты" }, { status: 400 })
     const bonus = await computeDcBonus(product.dc_amount)
     const totalDc = product.dc_amount + bonus
-    const title = `${product.name}${bonus ? ` (+${bonus} бонус)` : ""}`
+
+    // Валидация промокода
+    if (promoCode && promoCode.trim()) {
+      const promo = await validatePromoCode(promoCode.trim(), nick, product.price_rub, product.id)
+      if (!promo.ok) {
+        return Response.json({ error: promo.error }, { status: 400 })
+      }
+      const promoRow = await getPromoByCode(promoCode.trim())
+      if (promoRow) {
+        promoDiscount = { promoId: promoRow.id, discountAmount: promo.discountAmount! }
+      }
+    }
+
+    const finalAmount = promoDiscount ? Math.max(0, product.price_rub - promoDiscount.discountAmount) : product.price_rub
+    const bonusStr = bonus ? ` (+${bonus} бонус)` : ""
+    const promoStr = promoDiscount ? ` (промокод −${promoDiscount.discountAmount}₽)` : ""
+    const title = `${product.name}${bonusStr}${promoStr}`
     return startMoneyOrder({
       nick,
       productId: product.id,
       kind: "dc",
       title,
-      amountRub: product.price_rub,
+      amountRub: finalAmount,
       dcAmount: totalDc,
       method,
+      promoDiscount,
     })
   }
 
@@ -136,6 +201,7 @@ async function startMoneyOrder(o: {
   amountRub: number
   dcAmount: number
   method: "mydonate" | "easydonate" | "millida" | "donatello"
+  promoDiscount?: { promoId: number; discountAmount: number } | null
 }): Promise<Response> {
   const methodLabel =
     o.method === "mydonate"
@@ -155,6 +221,11 @@ async function startMoneyOrder(o: {
     method: o.method,
     status: "pending",
   })
+
+  // Записываем использование промокода
+  if (o.promoDiscount) {
+    await recordPromoUse(o.promoDiscount.promoId, o.nick, orderId)
+  }
 
   const invoice =
     o.method === "mydonate"
