@@ -33,7 +33,7 @@ public final class PoliteShopPlugin extends JavaPlugin {
                     + "%donatecoin% будет показывать '" + loadingText + "'. Заполни конфиг и /papi reload.");
         }
 
-        int period = Math.max(5, getConfig().getInt("refresh-seconds", 15)) * 20;
+        int period = Math.max(5, getConfig().getInt("refresh-seconds", 60)) * 20;
         // Периодически обновляем балансы всех онлайн-игроков (в асинхронном потоке).
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
@@ -53,6 +53,7 @@ public final class PoliteShopPlugin extends JavaPlugin {
         } else {
             service.update(site, key);
         }
+        service.setMinIntervalMs(Math.max(5, getConfig().getInt("refresh-seconds", 60)) * 1000L);
     }
 
     /** Запрос на фоновое обновление баланса конкретного игрока. */

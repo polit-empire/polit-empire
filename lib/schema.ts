@@ -457,6 +457,39 @@ async function runMigration() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
+  // Промокоды: скидки при покупке товаров.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS promo_codes (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      code            VARCHAR(32) NOT NULL,
+      discount_type   VARCHAR(16) NOT NULL DEFAULT 'percent',
+      discount_value  INT NOT NULL DEFAULT 0,
+      max_uses        INT NOT NULL DEFAULT 0,
+      used_count      INT NOT NULL DEFAULT 0,
+      min_amount_rub  INT NOT NULL DEFAULT 0,
+      product_ids     TEXT NULL,
+      expires_at      TIMESTAMP NULL,
+      is_active       TINYINT(1) NOT NULL DEFAULT 1,
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_promo_code (code),
+      INDEX idx_promo_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Использование промокодов: каждый игрок может использовать промокод столько
+  // раз, сколько допускает max_uses (0 = без ограничений на игрока).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS promo_code_usage (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      promo_id        INT NOT NULL,
+      minecraft_nick  VARCHAR(32) NOT NULL,
+      order_id        INT NULL,
+      used_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_promo_usage_promo (promo_id),
+      INDEX idx_promo_usage_nick (minecraft_nick)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
   // --- Сиды настроек по умолчанию (не перезаписывают существующие) ---
   const defaultSettings: Array<[string, string]> = [
     ["privilege_rcon_template", "lp user {nick} parent addtemp {group} {days}d"],

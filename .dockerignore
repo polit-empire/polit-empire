@@ -2,7 +2,9 @@ node_modules
 .next
 .git
 launcher
+panel
 .v0
+data
 *.tar.gz
 .env
 .env.local

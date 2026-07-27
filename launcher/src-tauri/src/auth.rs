@@ -55,36 +55,64 @@ pub async fn login(nickname: String, password: String) -> Result<LoginResponse, 
     let client = reqwest::Client::new();
     // Перебираем хосты GML (прямой домен → резервный Cloudflare): у части
     // игроков politempire.ru блокируется DPI и соединение не устанавливается.
-    // Первый ответивший хост запоминаем на сессию — профиль/скачивание/authlib
-    // пойдут через него же.
+    //
+    // Ответ считаем годным только если это НЕ 5xx и тело — валидный JSON.
+    // Иначе пробуем следующий хост. Раньше цикл прерывался на первом хосте,
+    // который вообще ответил на уровне TCP, — и мусорный ответ (502 с HTML от
+    // nginx, когда лежит бэкенд GML; заглушка DPI) считался окончательным:
+    // резервный домен не пробовался вообще. Хуже того, такой хост тут же
+    // запоминался через set_resolved_gml_host, и на него уходили ВСЕ
+    // последующие запросы сессии (профиль, скачивание, authlib).
     let hosts = crate::config::gml_host_candidates();
-    let mut res = None;
+    let mut accepted: Option<(reqwest::StatusCode, serde_json::Value)> = None;
     let mut last_err = "Сервер недоступен".to_string();
     for host in &hosts {
-        match client
+        let sent = client
             .post(format!("{host}/api/v1/integrations/auth/signin"))
             .header("User-Agent", launcher_user_agent())
             .header("X-HWID", &hwid)
             .json(&serde_json::json!({ "Login": nickname, "Password": password }))
             .timeout(std::time::Duration::from_secs(10))
             .send()
-            .await
-        {
-            Ok(r) => {
-                crate::config::set_resolved_gml_host(host);
-                res = Some(r);
-                break;
-            }
-            Err(e) => last_err = format!("Сервер недоступен: {e}"),
-        }
-    }
-    let res = res.ok_or(last_err)?;
+            .await;
 
-    let status = res.status();
-    let body: serde_json::Value = res
-        .json()
-        .await
-        .map_err(|e| format!("Некорректный ответ сервера: {e}"))?;
+        let r = match sent {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("Сервер недоступен: {e}");
+                continue;
+            }
+        };
+
+        let status = r.status();
+        let Ok(raw) = r.text().await else {
+            last_err = "Сервер авторизации не ответил. Попробуйте ещё раз.".to_string();
+            continue;
+        };
+        let body: serde_json::Value =
+            serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+
+        if status.is_server_error() || body.is_null() {
+            last_err =
+                "Сервис авторизации временно недоступен. Попробуйте через минуту.".to_string();
+            continue;
+        }
+
+        // Хост дал осмысленный ответ (успех либо явная ошибка входа вида
+        // «неверный пароль») — только теперь закрепляем его за сессией.
+        crate::config::set_resolved_gml_host(host);
+        accepted = Some((status, body));
+        break;
+    }
+
+    let Some((status, body)) = accepted else {
+        return Ok(LoginResponse {
+            token: None,
+            nickname: None,
+            error: Some(last_err),
+            banned: false,
+        });
+    };
 
     if !status.is_success() {
         let message = body["message"]
