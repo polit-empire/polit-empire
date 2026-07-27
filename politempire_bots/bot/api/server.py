@@ -52,22 +52,32 @@ async def handle_player_join(request: web.Request) -> web.Response:
         if not username:
             return web.json_response({"error": "username required"}, status=400)
 
-        user = await users.get_by_username(username)
+        try:
+            user = await users.get_by_username(username)
+        except Exception:
+            log.exception("Error getting user from site DB, proceeding without 2FA")
+            user = None
 
         # Журнал входа
-        await db.execute(
-            "INSERT INTO bot_auth_log (mc_username, event, ip, success) VALUES (%s, 'join', %s, 1)",
-            (username, ip),
-        )
+        try:
+            await db.execute(
+                "INSERT INTO bot_auth_log (mc_username, event, ip, success) VALUES (%s, 'join', %s, 1)",
+                (username, ip),
+            )
+        except Exception:
+            log.exception("Failed to insert into bot_auth_log")
 
         # Открываем игровую сессию (сначала закрываем старую, если не была закрыта)
         await _close_session(username)
-        await db.execute(
-            "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
-            "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
-            "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
-            (username, ip),
-        )
+        try:
+            await db.execute(
+                "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
+                "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
+                "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
+                (username, ip),
+            )
+        except Exception:
+            log.exception("Failed to insert into bot_play_sessions")
 
         if user and user.get("is_banned"):
             return web.json_response({"require_2fa": False, "banned": True,
@@ -142,10 +152,13 @@ async def handle_player_quit(request: web.Request) -> web.Response:
         username = (data.get("username") or "").strip()
         if not username:
             return web.json_response({"error": "username required"}, status=400)
-        await db.execute(
-            "INSERT INTO bot_auth_log (mc_username, event, success) VALUES (%s, 'quit', 1)",
-            (username,),
-        )
+        try:
+            await db.execute(
+                "INSERT INTO bot_auth_log (mc_username, event, success) VALUES (%s, 'quit', 1)",
+                (username,),
+            )
+        except Exception:
+            log.exception("Failed to insert into bot_auth_log for quit")
         await _close_session(username)
         return web.json_response({"ok": True})
     except Exception:
@@ -237,7 +250,13 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
         })
     except Exception:
         log.exception("Error handling player playtime")
-        return web.json_response({"error": "internal server error"}, status=500)
+        # Вместо 500 возвращаем нули, чтобы плагин не отваливался
+        return web.json_response({
+            "playtime_seconds": 0,
+            "session_count": 0,
+            "longest_session_seconds": 0,
+            "last_session_seconds": 0,
+        })
 
 
 async def handle_player_playtime_top(request: web.Request) -> web.Response:
@@ -270,7 +289,7 @@ async def handle_player_balance(request: web.Request) -> web.Response:
         return web.json_response({"balance": int(balance)})
     except Exception:
         log.exception("Error handling player balance")
-        return web.json_response({"error": "internal server error"}, status=500)
+        return web.json_response({"balance": 0})
 
 
 async def _playtime_ticker() -> None:
