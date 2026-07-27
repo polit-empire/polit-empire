@@ -64,7 +64,7 @@ RCON_PASSWORD = os.getenv("RCON_PASSWORD", "")
 
 # --- HTTP API для плагина ---
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = _int("API_PORT", 8180)
+API_PORT = _int("API_PORT", _int("PORT", 8180))
 # Секрет, который плагин передаёт в заголовке X-Api-Secret
 API_SECRET = os.getenv("API_SECRET", "")
 
