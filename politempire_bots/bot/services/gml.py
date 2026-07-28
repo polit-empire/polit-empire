@@ -16,36 +16,45 @@ log = logging.getLogger("gml")
 _token: str | None = None
 _token_ts: float = 0.0
 _TOKEN_TTL = 20 * 60  # перезапрашиваем токен раз в 20 минут
+_gml_backoff: int = 0  # текущая задержка между попытками (сек)
+_GML_MAX_BACKOFF: int = 300  # максимум 5 минут
 
 
 def is_configured() -> bool:
     return bool(config.GML_API_URL and config.GML_PANEL_LOGIN and config.GML_PANEL_PASSWORD)
 
 
+def get_backoff() -> int:
+    """Текущая задержка между попытками GML-signin (сек). 0 = можно пробовать."""
+    return _gml_backoff
+
+
 async def _signin(session: aiohttp.ClientSession) -> str | None:
-    global _token, _token_ts
+    global _token, _token_ts, _gml_backoff
     try:
         async with session.post(
             f"{config.GML_API_URL}/api/v1/users/signin",
             json={"Login": config.GML_PANEL_LOGIN, "Password": config.GML_PANEL_PASSWORD},
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=aiohttp.ClientTimeout(total=15),
         ) as res:
             if res.status != 200:
                 detail = (await res.text())[:300]
                 log.warning(
                     "GML signin failed: HTTP %s, ответ: %s | Проверьте GML_PANEL_LOGIN/"
-                    "GML_PANEL_PASSWORD именно в politempire_bots/.env (бот НЕ читает "
-                    "корневой .env) — логин/пароль должны совпадать с аккаунтом панели.",
+                    "GML_PANEL_PASSWORD и GML_API_URL в .env.",
                     res.status,
                     detail,
                 )
+                _gml_backoff = min(_gml_backoff * 2 or 30, _GML_MAX_BACKOFF)
                 return None
             body = await res.json()
             _token = (body.get("data") or {}).get("accessToken")
             _token_ts = time.monotonic()
+            _gml_backoff = 0
             return _token
     except Exception:
-        log.exception("GML signin error")
+        log.warning("GML signin error (timeout/unreachable): GML_API_URL=%s", config.GML_API_URL)
+        _gml_backoff = min(_gml_backoff * 2 or 30, _GML_MAX_BACKOFF)
         return None
 
 

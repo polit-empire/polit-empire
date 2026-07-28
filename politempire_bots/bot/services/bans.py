@@ -202,4 +202,5 @@ async def sync_loop() -> None:
             await _sync_once()
         except Exception:
             log.exception("Ban sync iteration failed")
-        await asyncio.sleep(BAN_SYNC_INTERVAL)
+        wait = max(BAN_SYNC_INTERVAL, gml.get_backoff())
+        await asyncio.sleep(wait)

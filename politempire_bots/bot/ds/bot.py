@@ -394,4 +394,11 @@ async def cmd_online(interaction: discord.Interaction) -> None:
 
 
 async def start_discord_bot() -> None:
-    await client.start(config.DISCORD_TOKEN)
+    import asyncio
+    while True:
+        try:
+            await client.start(config.DISCORD_TOKEN)
+            log.warning("Discord client exited cleanly; reconnecting in 10s...")
+        except Exception:
+            log.exception("Discord client crashed")
+        await asyncio.sleep(10)
