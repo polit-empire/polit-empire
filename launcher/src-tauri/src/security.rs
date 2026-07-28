@@ -63,22 +63,56 @@ fn blocked_processes() -> &'static [String] {
     CACHE.get_or_init(|| dec_all(BLOCKED_PROCESSES_ENC))
 }
 
+#[cfg(windows)]
+unsafe extern "system" fn enum_windows_callback(hwnd: windows_sys::Win32::Foundation::HWND, lparam: isize) -> windows_sys::Win32::Foundation::BOOL {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
+    let found_ptr = lparam as *mut Vec<String>;
+    let len = GetWindowTextLengthW(hwnd);
+    if len > 0 {
+        let mut buf = vec![0u16; (len + 1) as usize];
+        if GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) > 0 {
+            let title = String::from_utf16_lossy(&buf).to_lowercase();
+            let blocked = blocked_processes();
+            for b in blocked {
+                // Если заголовок окна содержит запрещённое слово (напр. Cheat Engine)
+                if title.contains(b.as_str()) {
+                    let label = format!("Window: {title} ({b})");
+                    (*found_ptr).push(label);
+                }
+            }
+        }
+    }
+    1 // Continue enumeration
+}
+
 /// Возвращает имена всех запущенных процессов-читов/инжекторов/снифферов.
 /// Замена старому scan_for_injectors: возвращает ВСЕ совпадения, а не первое.
 pub fn scan_running_cheats() -> Vec<String> {
     let blocked = blocked_processes();
+    let mut found = Vec::new();
+
+    // 1. Проверка по именам процессов
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let mut found = Vec::new();
     for process in sys.processes().values() {
         let name = process.name().to_string_lossy().to_lowercase();
         if let Some(hit) = blocked.iter().find(|b| name.contains(b.as_str())) {
-            let label = format!("{name} ({hit})");
+            let label = format!("Process: {name} ({hit})");
             if !found.contains(&label) {
                 found.push(label);
             }
         }
     }
+
+    // 2. Проверка по заголовкам окон (Windows). Ловит читы, если их переименовали.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows;
+        unsafe {
+            EnumWindows(Some(enum_windows_callback), &mut found as *mut _ as isize);
+        }
+    }
+
     found
 }
 

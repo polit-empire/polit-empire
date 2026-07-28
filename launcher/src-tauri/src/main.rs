@@ -32,6 +32,9 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 fn main() {
+    // Вытираем заголовки PE из памяти как можно раньше (защита от дамперов).
+    antitamper::erase_pe_header();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {

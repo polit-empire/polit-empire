@@ -25,7 +25,15 @@ fn main() {
     let src = candidates.iter().find(|p| p.exists());
     match src {
         Some(path) => {
-            fs::copy(path, &dst).expect("failed to copy anticheat dll into OUT_DIR");
+            // Вместо простого копирования, читаем DLL и шифруем её (XOR),
+            // чтобы в бинарнике лаунчера не было MZ/PE заголовков и её
+            // нельзя было вытащить простым сканированием памяти или бинарника.
+            if let Ok(mut data) = fs::read(path) {
+                for (i, byte) in data.iter_mut().enumerate() {
+                    *byte ^= (0x42_u8).wrapping_add(i as u8); // Простой XOR с плавающим ключом
+                }
+                fs::write(&dst, &data).expect("failed to write encrypted anticheat dll");
+            }
             println!("cargo:rerun-if-changed={}", path.display());
         }
         None => {

@@ -136,6 +136,15 @@ fn set_hidden(_path: &std::path::Path) {}
 /// только внутри .exe, а на диск попадает лишь скрытая рабочая копия.
 static EMBEDDED_DLL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pe_anticheat.dll"));
 
+/// Расшифровывает вшитую DLL в памяти (XOR с ключом из build.rs).
+fn decrypted_dll() -> Vec<u8> {
+    let mut data = EMBEDDED_DLL.to_vec();
+    for (i, byte) in data.iter_mut().enumerate() {
+        *byte ^= (0x42_u8).wrapping_add(i as u8);
+    }
+    data
+}
+
 /// Готовит DLL к инжекту: распаковывает вшитые байты в скрытый каталог под
 /// безобидным именем. Файл существует только на время игровой сессии и
 /// удаляется в `cleanup_stealth` после закрытия игры.
@@ -144,7 +153,7 @@ fn ensure_dll() -> Result<PathBuf, String> {
         return Err("Модуль защиты не встроен в сборку".to_string());
     }
     let dst = anticheat_dll_path();
-    std::fs::write(&dst, EMBEDDED_DLL)
+    std::fs::write(&dst, decrypted_dll())
         .map_err(|e| format!("Не удалось подготовить модуль защиты: {e}"))?;
     set_hidden(&dst);
     Ok(dst)
@@ -255,9 +264,9 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
     // подменить. Прямо перед инжектом сверяем содержимое на диске с эталонными
     // вшитыми байтами и при расхождении восстанавливаем оригинал.
     match std::fs::read(&dll_path) {
-        Ok(on_disk) if on_disk.as_slice() == EMBEDDED_DLL => {}
+        Ok(on_disk) if on_disk == decrypted_dll() => {}
         _ => {
-            std::fs::write(&dll_path, EMBEDDED_DLL)
+            std::fs::write(&dll_path, decrypted_dll())
                 .map_err(|e| format!("Не удалось восстановить модуль защиты: {e}"))?;
             set_hidden(&dll_path);
         }
