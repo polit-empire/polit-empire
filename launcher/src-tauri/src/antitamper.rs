@@ -8,9 +8,7 @@
 use std::time::Duration;
 
 #[cfg(windows)]
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress, GetModuleHandleW};
-#[cfg(windows)]
-use windows_sys::Win32::System::Memory::{VirtualProtect, PAGE_READWRITE};
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread};
 
@@ -26,26 +24,6 @@ unsafe fn get_api<T>(module: &[u8], func: &[u8]) -> Option<T> {
     }
     Some(std::mem::transmute_copy(&addr))
 }
-
-/// Стирает заголовки MZ и PE из памяти запущенного лаунчера.
-/// Усложняет жизнь дамперам памяти (Scylla, MegaDumper и т.д.)
-#[cfg(windows)]
-pub fn erase_pe_header() {
-    unsafe {
-        let base = GetModuleHandleW(std::ptr::null());
-        if base.is_null() { return; }
-        let mut old_protect = 0;
-        // Заголовок PE обычно занимает первую страницу (4096 байт)
-        if VirtualProtect(base as *const _ as *mut _, 4096, PAGE_READWRITE, &mut old_protect) != 0 {
-            let ptr = base as *mut u8;
-            // Стираем MZ и PE сигнатуры
-            std::ptr::write_bytes(ptr, 0, 4096);
-            VirtualProtect(base as *const _ as *mut _, 4096, old_protect, &mut old_protect);
-        }
-    }
-}
-#[cfg(not(windows))]
-pub fn erase_pe_header() {}
 
 #[cfg(windows)]
 fn hide_thread() {
@@ -67,12 +45,17 @@ fn hide_thread() {}
 #[cfg(windows)]
 pub fn debugger_present() -> bool {
     use windows_sys::Win32::Foundation::{BOOL, HANDLE};
-    use windows_sys::Win32::System::Diagnostics::Debug::CONTEXT;
+    use windows_sys::Win32::System::Diagnostics::Debug::IsDebuggerPresent;
     use std::arch::asm;
 
     unsafe {
-        // 1. Прямое чтение флага BeingDebugged из PEB (x64)
-        let mut being_debugged: u8;
+        // 1. Стандартная API IsDebuggerPresent
+        if IsDebuggerPresent() != 0 {
+            return true;
+        }
+
+        // 2. Прямое чтение флага BeingDebugged из PEB (x64)
+        let mut being_debugged: u8 = 0;
         asm!(
             "mov {peb}, gs:[0x60]",
             "mov {dbg}, [{peb} + 2]",
@@ -83,7 +66,7 @@ pub fn debugger_present() -> bool {
             return true;
         }
 
-        // 2. Динамический вызов CheckRemoteDebuggerPresent (прячем от IAT)
+        // 3. Динамический вызов CheckRemoteDebuggerPresent (прячем от IAT)
         type CheckRemoteDebuggerPresentFn = unsafe extern "system" fn(HANDLE, *mut BOOL) -> BOOL;
         let module = crate::obf_str!("kernel32.dll\0");
         let func = crate::obf_str!("CheckRemoteDebuggerPresent\0");
@@ -91,20 +74,6 @@ pub fn debugger_present() -> bool {
             let mut present: BOOL = 0;
             if check_remote(GetCurrentProcess(), &mut present) != 0 && present != 0 {
                 return true;
-            }
-        }
-
-        // 3. Аппаратные точки останова (Dr0 - Dr3)
-        type GetThreadContextFn = unsafe extern "system" fn(HANDLE, *mut CONTEXT) -> BOOL;
-        let func_ctx = crate::obf_str!("GetThreadContext\0");
-        if let Some(get_ctx) = get_api::<GetThreadContextFn>(module.as_bytes(), func_ctx.as_bytes()) {
-            let mut ctx: std::mem::MaybeUninit<CONTEXT> = std::mem::MaybeUninit::zeroed();
-            let mut ctx_ptr = ctx.assume_init();
-            ctx_ptr.ContextFlags = 0x10010; // CONTEXT_DEBUG_REGISTERS
-            if get_ctx(GetCurrentThread(), &mut ctx_ptr) != 0 {
-                if ctx_ptr.Dr0 != 0 || ctx_ptr.Dr1 != 0 || ctx_ptr.Dr2 != 0 || ctx_ptr.Dr3 != 0 {
-                    return true;
-                }
             }
         }
     }
