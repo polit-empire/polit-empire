@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getDb, findUserByNick } from "@/lib/db"
 import { verifyPassword } from "@/lib/passwords"
 import { rateLimit, checkRateLimit } from "@/lib/rate-limit"
+import { isAdminUser } from "@/lib/admin"
 
 /**
  * POST /api/gml/auth
@@ -87,6 +88,11 @@ export async function POST(request: Request) {
   // не раскрываем, какие ники существуют.
   if (!user || !verifyPassword(password, user.password_hash)) {
     return Response.json({ Message: "Неверный ник или пароль" }, { status: 401 })
+  }
+
+  // Только админы могут входить в GML-панель.
+  if (!(await isAdminUser(user))) {
+    return Response.json({ Message: "Доступ запрещён: требуются права администратора" }, { status: 403 })
   }
 
   if (user.is_banned === 1) {
