@@ -395,10 +395,23 @@ async def cmd_online(interaction: discord.Interaction) -> None:
 
 async def start_discord_bot() -> None:
     import asyncio
+    consecutive_failures = 0
     while True:
         try:
+            consecutive_failures = 0
             await client.start(config.DISCORD_TOKEN)
-            log.warning("Discord client exited cleanly; reconnecting in 10s...")
+            log.warning("Discord client exited cleanly; reconnecting in 30s...")
+            await asyncio.sleep(30)
+        except discord.errors.LoginFailure:
+            consecutive_failures += 1
+            wait = min(60 * consecutive_failures, 600)
+            log.error(
+                "Discord: невалидный токен (401). Обновите DISCORD_TOKEN в .env. "
+                "Повтор через %dс.", wait,
+            )
+            await asyncio.sleep(wait)
         except Exception:
-            log.exception("Discord client crashed")
-        await asyncio.sleep(10)
+            consecutive_failures += 1
+            wait = min(10 * consecutive_failures, 120)
+            log.exception("Discord client crashed; reconnecting in %ds", wait)
+            await asyncio.sleep(wait)
