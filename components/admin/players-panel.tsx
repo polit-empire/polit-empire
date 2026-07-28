@@ -13,6 +13,7 @@ interface PlayerRow {
   minecraft_nick: string
   is_banned: number
   ban_reason: string | null
+  ban_expires: string | null
   telegram_id: number | null
   last_login: string | null
   last_hwid: string | null
@@ -107,6 +108,7 @@ export function PlayersPanel() {
   const [takeGroup, setTakeGroup] = useState<string>("")
   const [reason, setReason] = useState<string>("")
   const [banDevice, setBanDevice] = useState(false)
+  const [banDuration, setBanDuration] = useState<string>("")
   const [newNick, setNewNick] = useState<string>("")
   const [newPassword, setNewPassword] = useState<string>("")
 
@@ -273,6 +275,7 @@ export function PlayersPanel() {
                     setTakeGroup(p.privilege ?? "")
                     setNewNick("")
                     setNewPassword("")
+                    setBanDuration("")
                   }}
                   className={cnRow(selected?.minecraft_nick === p.minecraft_nick)}
                 >
@@ -280,7 +283,7 @@ export function PlayersPanel() {
                     <span className="truncate font-mono text-sm text-foreground">{p.minecraft_nick}</span>
                     {p.is_banned === 1 && (
                       <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                        БАН
+                        {p.ban_expires ? `БАН до ${new Date(p.ban_expires).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "БАН"}
                       </span>
                     )}
                   </div>
@@ -435,21 +438,69 @@ export function PlayersPanel() {
                   Забанить вместе с устройством (HWID)
                 </label>
               )}
+              {selected.is_banned !== 1 && (
+                <Field label="Срок бана (минуты, пусто = навсегда)">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <TextInput
+                      type="number"
+                      min={1}
+                      value={banDuration}
+                      onChange={(e) => setBanDuration(e.target.value)}
+                      placeholder="Навсегда"
+                      className="w-28"
+                    />
+                    <div className="flex gap-1">
+                      {[
+                        { label: "30м", min: 30 },
+                        { label: "1ч", min: 60 },
+                        { label: "6ч", min: 360 },
+                        { label: "1д", min: 1440 },
+                        { label: "7д", min: 10080 },
+                        { label: "30д", min: 43200 },
+                      ].map(({ label, min }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setBanDuration(String(min))}
+                          className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                            banDuration === String(min)
+                              ? "bg-destructive text-destructive-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </Field>
+              )}
               <div className="flex flex-wrap gap-2">
                 {selected.is_banned === 1 ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => act("unban")}
-                    className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    Разбанить
-                  </button>
+                  <>
+                    <div className="w-full rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      <div className="font-semibold">Забанен{selected.ban_reason ? `: ${selected.ban_reason}` : ""}</div>
+                      {selected.ban_expires && (
+                        <div className="mt-0.5">
+                          Срок до: {new Date(selected.ban_expires).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      )}
+                      {!selected.ban_expires && <div className="mt-0.5">Навсегда</div>}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => act("unban")}
+                      className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      Разбанить
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => act("ban", { reason, hwid: banDevice })}
+                    onClick={() => act("ban", { reason, hwid: banDevice, duration_minutes: banDuration ? Number(banDuration) : 0 })}
                     className="flex items-center gap-1.5 rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
                     <Ban className="size-4" /> Забанить

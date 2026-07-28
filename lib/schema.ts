@@ -42,6 +42,8 @@ async function runMigration() {
   await addColumnIfMissing("users", "ac_strikes", "ac_strikes INT NOT NULL DEFAULT 0")
   await addColumnIfMissing("users", "ac_last_session", "ac_last_session VARCHAR(64) NULL")
   await addColumnIfMissing("users", "ac_last_strike", "ac_last_strike TIMESTAMP NULL")
+  // Временный бан: если задан — аккаунт автоматически разбанится в это время
+  await addColumnIfMissing("users", "ban_expires", "ban_expires DATETIME NULL")
 
   // Баны по железу: HWID устройства, с которого запрещён вход
   await db.query(`
@@ -569,6 +571,22 @@ async function runMigration() {
       )
     }
   }
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS wiki_articles (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      slug         VARCHAR(128) NOT NULL,
+      title        VARCHAR(255) NOT NULL,
+      category     VARCHAR(64) NOT NULL DEFAULT 'Общее',
+      content      LONGTEXT NOT NULL,
+      is_published TINYINT(1) NOT NULL DEFAULT 1,
+      created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_wiki_slug (slug),
+      INDEX idx_wiki_published (is_published),
+      INDEX idx_wiki_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
 
   console.log("[migrate] Schema is up to date.")
 }

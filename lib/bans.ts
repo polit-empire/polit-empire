@@ -8,7 +8,8 @@ import { sendTelegramMessage } from "@/lib/telegram"
  *  - бан аккаунта: users.is_banned + RCON ban/kick + уведомление в TG;
  *  - бан по «сырому» значению (HWID / UUID / IP): заносим в чёрный список и
  *    каскадно баним связанные аккаунты;
- *  - опция ban+device: дополнительно блокируем устройство игрока (last_hwid).
+ *  - опция ban+device: дополнительно блокируем устройство игрока (last_hwid);
+ *  - временный бан: ban_expires — аккаунт автоматически разбанится.
  */
 
 export type BanKind = "hwid" | "uuid" | "ip"
@@ -51,11 +52,12 @@ async function notifyPlayer(nick: string, text: string): Promise<void> {
 /**
  * Полный бан аккаунта: БД + сервер (ban+kick) + TG-уведомление.
  * withHwid=true — дополнительно банит устройство игрока (last_hwid).
+ * expiresAt — если задан, бан автоматически снимается в указанное время.
  */
 export async function banAccount(
   nick: string,
   reason: string,
-  opts: { withHwid?: boolean } = {},
+  opts: { withHwid?: boolean; expiresAt?: Date | string | null } = {},
 ): Promise<void> {
   const db = getDb()
   reason = reason || "Нарушение правил"
@@ -66,7 +68,12 @@ export async function banAccount(
   )
   const lastHwid = (rows as Array<{ last_hwid: string | null }>)[0]?.last_hwid ?? null
 
-  await db.query("UPDATE users SET is_banned = 1, ban_reason = ? WHERE minecraft_nick = ?", [reason, nick])
+  const expiresClause = opts.expiresAt ? `, ban_expires = ?` : ""
+  const expiresParams = opts.expiresAt ? [opts.expiresAt] : []
+  await db.query(
+    `UPDATE users SET is_banned = 1, ban_reason = ?${expiresClause} WHERE minecraft_nick = ?`,
+    [reason, ...expiresParams, nick],
+  )
 
   if (opts.withHwid && lastHwid) {
     await db.query(
@@ -77,16 +84,50 @@ export async function banAccount(
   }
 
   await rconSafe([`ban ${nick} ${reason}`, `kick ${nick} Вы заблокированы: ${reason}`])
-  await notifyPlayer(nick, `⛔️ Ваш аккаунт <b>${nick}</b> заблокирован.\nПричина: ${reason}`)
+
+  let durationText = ""
+  if (opts.expiresAt) {
+    const d = typeof opts.expiresAt === "string" ? new Date(opts.expiresAt) : opts.expiresAt
+    const diff = d.getTime() - Date.now()
+    if (diff > 0) {
+      const h = Math.floor(diff / 3600000)
+      const m = Math.floor((diff % 3600000) / 60000)
+      durationText = h > 0 ? `${h}ч ${m}м` : `${m}м`
+    }
+  }
+
+  const banMsg = durationText
+    ? `⛔️ Ваш аккаунт <b>${nick}</b> заблокирован на ${durationText}.\nПричина: ${reason}`
+    : `⛔️ Ваш аккаунт <b>${nick}</b> заблокирован навсегда.\nПричина: ${reason}`
+  await notifyPlayer(nick, banMsg)
 }
 
 /** Полный разбан аккаунта: БД + pardon + снятие бана устройства + TG. */
 export async function unbanAccount(nick: string): Promise<void> {
   const db = getDb()
-  await db.query("UPDATE users SET is_banned = 0, ban_reason = NULL WHERE minecraft_nick = ?", [nick])
+  await db.query("UPDATE users SET is_banned = 0, ban_reason = NULL, ban_expires = NULL WHERE minecraft_nick = ?", [nick])
   await db.query("DELETE FROM banned_hwids WHERE mc_username = ?", [nick])
   await rconSafe([`pardon ${nick}`])
   await notifyPlayer(nick, `✅ Ваш аккаунт <b>${nick}</b> разблокирован.`)
+}
+
+/**
+ * Проверяет и автоматически снимает баны, у которых истёк срок.
+ * Вызывается при старте сервера и периодически (через ban sync).
+ */
+export async function unbanExpired(): Promise<string[]> {
+  const db = getDb()
+  const [rows] = await db.query(
+    "SELECT minecraft_nick FROM users WHERE is_banned = 1 AND ban_expires IS NOT NULL AND ban_expires <= NOW()",
+  )
+  const nicks = (rows as Array<{ minecraft_nick: string }>).map((r) => r.minecraft_nick)
+  for (const nick of nicks) {
+    await db.query("UPDATE users SET is_banned = 0, ban_reason = NULL, ban_expires = NULL WHERE minecraft_nick = ?", [nick])
+    await db.query("DELETE FROM banned_hwids WHERE mc_username = ?", [nick])
+    await rconSafe([`pardon ${nick}`])
+    await notifyPlayer(nick, `✅ Ваш аккаунт <b>${nick}</b> разблокирован автоматически (истёк срок бана).`)
+  }
+  return nicks
 }
 
 /** Ники аккаунтов, связанных со значением (для каскадного бана). */

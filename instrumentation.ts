@@ -28,5 +28,15 @@ export async function register() {
     setupCrashHandler()
     const { ensureSchema } = await import("./lib/schema")
     void ensureSchema()
+    // Автоматически снимаем истёкшие временные баны при старте сервера
+    try {
+      const { unbanExpired } = await import("./lib/bans")
+      const unbanned = await unbanExpired()
+      if (unbanned.length > 0) {
+        console.log(`[startup] Auto-unbanned ${unbanned.length} expired accounts: ${unbanned.join(", ")}`)
+      }
+    } catch {
+      // Не критично — баны будут сняты при следующем входе
+    }
   }
 }

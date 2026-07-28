@@ -103,11 +103,12 @@ async def _rcon_safe(coro, what: str) -> None:
         log.warning("RCON %s failed (server offline?)", what)
 
 
-async def ban(username: str, reason: str, source: str = "tg", hwid: bool = False) -> bool:
+async def ban(username: str, reason: str, source: str = "tg", hwid: bool = False, expires_minutes: int = 0) -> bool:
     """Полный бан: БД + панель GML + сервер (ban+kick) + уведомление.
 
     hwid=True — дополнительно банит устройство игрока (last_hwid):
     вход в лаунчер с этого компьютера станет невозможен для любых аккаунтов.
+    expires_minutes > 0 — временный бан, автоматически снимается через указанное время.
     """
     user = await users.get_by_username(username)
     if not user:
@@ -115,9 +116,15 @@ async def ban(username: str, reason: str, source: str = "tg", hwid: bool = False
     nick = user["minecraft_nick"]
     reason = reason or "Причина не указана"
 
+    expires_clause = ""
+    expires_params: tuple[str, ...] = ()
+    if expires_minutes > 0:
+        expires_clause = ", ban_expires=DATE_ADD(NOW(), INTERVAL %s MINUTE)"
+        expires_params = (expires_minutes,)
+
     await db.execute(
-        "UPDATE users SET is_banned=1, ban_reason=%s WHERE minecraft_nick=%s",
-        (reason, nick),
+        f"UPDATE users SET is_banned=1, ban_reason=%s{expires_clause} WHERE minecraft_nick=%s",
+        (reason, *expires_params, nick),
     )
     if hwid:
         if user.get("last_hwid"):
@@ -149,7 +156,7 @@ async def unban(username: str, source: str = "tg") -> bool:
     nick = user["minecraft_nick"]
 
     await db.execute(
-        "UPDATE users SET is_banned=0, ban_reason=NULL WHERE minecraft_nick=%s",
+        "UPDATE users SET is_banned=0, ban_reason=NULL, ban_expires=NULL WHERE minecraft_nick=%s",
         (nick,),
     )
     # Снимаем бан устройства, если он был выдан по этому игроку
@@ -163,6 +170,34 @@ async def unban(username: str, source: str = "tg") -> bool:
         await notify.send_unban_notice(int(user["telegram_id"]), nick)
     log.info("Unbanned %s (source=%s)", nick, source)
     return True
+
+
+async def unban_expired() -> list[str]:
+    """Проверяет и автоматически снимает баны, у которых истёк срок."""
+    rows = await db.fetchall(
+        "SELECT minecraft_nick FROM users WHERE is_banned=1 AND ban_expires IS NOT NULL AND ban_expires<=NOW()"
+    )
+    nicks = [r["minecraft_nick"] for r in rows]
+    for nick in nicks:
+        await db.execute(
+            "UPDATE users SET is_banned=0, ban_reason=NULL, ban_expires=NULL WHERE minecraft_nick=%s",
+            (nick,),
+        )
+        await db.execute("DELETE FROM banned_hwids WHERE mc_username=%s", (nick,))
+        try:
+            await gml.pardon_player(nick)
+        except Exception:
+            pass
+        try:
+            await rcon.pardon_player(nick)
+        except Exception:
+            pass
+        # Уведомляем пользователя
+        user = await users.get_by_username(nick)
+        if user and user.get("telegram_id"):
+            await notify.send_unban_notice(int(user["telegram_id"]), nick)
+        log.info("Auto-unbanned %s (expired)", nick)
+    return nicks
 
 
 async def _sync_once() -> None:
@@ -200,6 +235,10 @@ async def sync_loop() -> None:
     while True:
         try:
             await _sync_once()
+            # Проверяем и автоматически снимаем истёкшие временные баны
+            unbanned = await unban_expired()
+            if unbanned:
+                log.info("Auto-unbanned %d expired accounts: %s", len(unbanned), ", ".join(unbanned))
         except Exception:
             log.exception("Ban sync iteration failed")
         wait = max(BAN_SYNC_INTERVAL, gml.get_backoff())

@@ -1185,14 +1185,37 @@ async def cmd_force2fa(message: Message) -> None:
 async def cmd_ban(message: Message) -> None:
     if not await _require_admin(message):
         return
-    parts = (message.text or "").split(maxsplit=2)
+    parts = (message.text or "").split(maxsplit=3)
     if len(parts) < 2:
-        await message.answer("Использование: /ban <ник> [причина]")
+        await message.answer("Использование: /ban <ник> [время_мин] [причина]\nПримеры:\n  /ban Player1 Гриферство\n  /ban Player1 60 Спам\n  /ban Player1 1440 Нарушение")
         return
-    reason = parts[2] if len(parts) > 2 else "Не указана"
-    if await bans.ban(parts[1], reason, source=f"tg:{message.from_user.id}"):
-        await users.log_admin_action(message.from_user.id, "ban", parts[1], reason)
-        await message.answer(f"⛔ Игрок <code>{_esc(parts[1])}</code> забанен.")
+    nick = parts[1]
+    expires_minutes = 0
+    reason = "Не указана"
+    if len(parts) == 3:
+        # /ban nick reason  OR  /ban nick duration
+        if parts[2].isdigit():
+            expires_minutes = int(parts[2])
+        else:
+            reason = parts[2]
+    elif len(parts) >= 4:
+        # /ban nick duration reason
+        if parts[2].isdigit():
+            expires_minutes = int(parts[2])
+            reason = parts[3]
+        else:
+            reason = f"{parts[2]} {parts[3]}"
+    if await bans.ban(nick, reason, source=f"tg:{message.from_user.id}", expires_minutes=expires_minutes):
+        await users.log_admin_action(message.from_user.id, "ban", nick, reason)
+        duration_text = ""
+        if expires_minutes > 0:
+            if expires_minutes >= 1440:
+                duration_text = f" на {expires_minutes // 1440}д"
+            elif expires_minutes >= 60:
+                duration_text = f" на {expires_minutes // 60}ч {expires_minutes % 60}м" if expires_minutes % 60 else f" на {expires_minutes // 60}ч"
+            else:
+                duration_text = f" на {expires_minutes}м"
+        await message.answer(f"⛔ Игрок <code>{_esc(nick)}</code> забанен{duration_text}.\nПричина: {_esc(reason)}")
     else:
         await message.answer("❌ Игрок не найден.")
 
@@ -1202,14 +1225,35 @@ async def cmd_banhw(message: Message) -> None:
     """Бан по железу: аккаунт + устройство игрока."""
     if not await _require_admin(message):
         return
-    parts = (message.text or "").split(maxsplit=2)
+    parts = (message.text or "").split(maxsplit=3)
     if len(parts) < 2:
-        await message.answer("Использование: /banhw <ник> [причина]")
+        await message.answer("Использование: /banhw <ник> [время_мин] [причина]\nПримеры:\n  /banhw Player1 Гриферство\n  /banhw Player1 60 Спам")
         return
-    reason = parts[2] if len(parts) > 2 else "Не указана"
-    if await bans.ban(parts[1], reason, source=f"tg:{message.from_user.id}", hwid=True):
-        await users.log_admin_action(message.from_user.id, "ban_hwid", parts[1], reason)
-        await message.answer(f"🖥 Игрок <code>{_esc(parts[1])}</code> забанен по железу.")
+    nick = parts[1]
+    expires_minutes = 0
+    reason = "Не указана"
+    if len(parts) == 3:
+        if parts[2].isdigit():
+            expires_minutes = int(parts[2])
+        else:
+            reason = parts[2]
+    elif len(parts) >= 4:
+        if parts[2].isdigit():
+            expires_minutes = int(parts[2])
+            reason = parts[3]
+        else:
+            reason = f"{parts[2]} {parts[3]}"
+    if await bans.ban(nick, reason, source=f"tg:{message.from_user.id}", hwid=True, expires_minutes=expires_minutes):
+        await users.log_admin_action(message.from_user.id, "ban_hwid", nick, reason)
+        duration_text = ""
+        if expires_minutes > 0:
+            if expires_minutes >= 1440:
+                duration_text = f" на {expires_minutes // 1440}д"
+            elif expires_minutes >= 60:
+                duration_text = f" на {expires_minutes // 60}ч {expires_minutes % 60}м" if expires_minutes % 60 else f" на {expires_minutes // 60}ч"
+            else:
+                duration_text = f" на {expires_minutes}м"
+        await message.answer(f"🖥 Игрок <code>{_esc(nick)}</code> забанен по железу{duration_text}.")
     else:
         await message.answer("❌ Игрок не найден.")
 

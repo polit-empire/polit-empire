@@ -4,6 +4,7 @@ import { verifyPassword } from "@/lib/passwords"
 import { generateApiToken, sha256 } from "@/lib/tokens"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { logAccountEvent, clientIp, launcherVersionFromReq } from "@/lib/audit"
+import { unbanExpired } from "@/lib/bans"
 
 const bodySchema = z.object({
   nickname: z.string().regex(/^[a-zA-Z0-9_]{3,16}$/),
@@ -38,11 +39,26 @@ export async function POST(request: Request) {
     return Response.json({ error: "Неверный ник или пароль" }, { status: 401 })
   }
 
+  // Проверяем и автоматически снимаем истёкшие временные баны
   if (user.is_banned === 1) {
-    return Response.json(
-      { error: `Аккаунт заблокирован. Причина: ${user.ban_reason || "не указана"}`, banned: true },
-      { status: 403 },
-    )
+    const unbanned = await unbanExpired()
+    if (unbanned.includes(user.minecraft_nick)) {
+      // Перечитываем пользователя после разбана
+      const refreshed = await findUserByNick(nickname)
+      if (refreshed && refreshed.is_banned === 0) {
+        // Продолжаем вход — бан был временным и истёк
+      } else {
+        return Response.json(
+          { error: `Аккаунт заблокирован. Причина: ${refreshed?.ban_reason || "не указана"}`, banned: true },
+          { status: 403 },
+        )
+      }
+    } else {
+      return Response.json(
+        { error: `Аккаунт заблокирован. Причина: ${user.ban_reason || "не указана"}`, banned: true },
+        { status: 403 },
+      )
+    }
   }
 
   const rawToken = generateApiToken()

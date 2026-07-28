@@ -185,17 +185,23 @@ export async function POST(req: Request) {
       case "ban": {
         const reason = (b.reason as string) || "Нарушение правил"
         const withHwid = Boolean(b.hwid)
-        await banAccount(nick, reason, { withHwid })
+        const durationMinutes = Number(b.duration_minutes) || 0
+        const expiresAt = durationMinutes > 0 ? new Date(Date.now() + durationMinutes * 60_000) : null
+        await banAccount(nick, reason, { withHwid, expiresAt })
         await logAdminAction({
           adminNick,
           action: "ban",
           targetNick: nick,
-          detail: `${withHwid ? "Бан + устройство (HWID)" : "Бан аккаунта"}. Причина: ${reason}`,
+          detail: `${withHwid ? "Бан + устройство (HWID)" : "Бан аккаунта"}. Причина: ${reason}` +
+            (expiresAt ? `. Срок: ${durationMinutes}мин (до ${expiresAt.toISOString()})` : ". Навсегда"),
           ip,
         })
         return NextResponse.json({
           ok: true,
-          message: withHwid ? `${nick} забанен вместе с устройством` : `${nick} забанен`,
+          message: withHwid
+            ? (expiresAt ? `${nick} забанен на ${durationMinutes}мин вместе с устройством` : `${nick} забанен навсегда вместе с устройством`)
+            : (expiresAt ? `${nick} забанен на ${durationMinutes}мин` : `${nick} забанен навсегда`),
+          ban_expires: expiresAt?.toISOString() ?? null,
         })
       }
       case "unban": {

@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getDb } from "@/lib/db"
 import { authenticatePlayer, unauthorized } from "@/lib/auth"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { unbanExpired } from "@/lib/bans"
 
 const bodySchema = z.object({
   hwid: z.string().min(8).max(64),
@@ -57,6 +58,11 @@ export async function POST(request: Request) {
 
   const ip = clientIp(request)
   const uuid = offlineUuid(user.minecraft_nick)
+
+  // Автоматически снимаем истёкшие временные баны
+  if (user.is_banned === 1) {
+    await unbanExpired()
+  }
 
   // Запоминаем последнее устройство и IP (нужно админам для банов по данным).
   await db.query("UPDATE users SET last_hwid = ?, last_ip = ? WHERE minecraft_nick = ?", [
