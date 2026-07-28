@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 #    достаточно убрать "cfobf" из default (одна строка) и всё соберётся без CFO,
 #    строковая и фронтенд-обфускация при этом сохраняются.
 [features]
-default = ["cfobf"]
+default = []
 cfobf = ["dep:goldberg"]
 
 [dependencies]
