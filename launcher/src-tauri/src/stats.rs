@@ -64,10 +64,8 @@ async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let settings = crate::config::load_settings();
     let nickname = settings.nickname.as_deref()?;
 
-    let base = crate::config::api_base();
     let url = format!(
-        "{}/api/player/playtime?username={}",
-        base,
+        "https://polit-empire-bots.onrender.com/api/player/playtime?username={}",
         urlencode(nickname)
     );
 

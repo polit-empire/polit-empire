@@ -182,7 +182,7 @@ pub async fn verify_session() -> Result<VerifyResponse, String> {
             .header("User-Agent", launcher_user_agent())
             .header("X-HWID", get_or_create_hwid())
             .json(&serde_json::json!({ "AccessToken": token }))
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(3))
             .send()
             .await
         {

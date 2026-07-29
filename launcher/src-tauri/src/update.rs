@@ -73,7 +73,7 @@ pub async fn check_launcher_update() -> Result<UpdateInfo, String> {
     let res = client
         .get(format!("{}/api/launcher/version", api_base()))
         .header("User-Agent", launcher_user_agent())
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(3))
         .send()
         .await
         .map_err(|e| format!("Сервер обновлений недоступен: {e}"))?;
