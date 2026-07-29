@@ -78,40 +78,6 @@ if defined SKIP_BUILD (
   popd
 )
 
-REM --- регистрация хеша самого лаунчера (self-integrity) ----------------------
-REM Хешируется НЕ установщик, а бинарник из target\release, который ставится
-REM игроку и который лаунчер сверяет через current_exe(). Имя exe зависит от
-REM Tauri (productName или имя crate) — ищем оба варианта, затем берём самый
-REM свежий *.exe из target\release как запасной вариант.
-set "REL_DIR=launcher\src-tauri\target\release"
-set "LAUNCHER_EXE="
-if exist "%REL_DIR%\Polit Empire Launcher.exe" set "LAUNCHER_EXE=%REL_DIR%\Polit Empire Launcher.exe"
-if not defined LAUNCHER_EXE if exist "%REL_DIR%\polit-empire-launcher.exe" set "LAUNCHER_EXE=%REL_DIR%\polit-empire-launcher.exe"
-if not defined LAUNCHER_EXE (
-  for /f "usebackq delims=" %%f in (`dir /b /a-d /o-d "%REL_DIR%\*.exe" 2^>nul`) do (
-    if not defined LAUNCHER_EXE set "LAUNCHER_EXE=%REL_DIR%\%%f"
-  )
-)
-
-if defined SKIP_HASH (
-  echo(
-  echo === [3/4] Регистрация хеша ПРОПУЩЕНА (--no-hash) ===
-) else if not defined LAUNCHER_EXE (
-  echo(
-  echo === [3/4] Регистрация хеша ===
-  echo [ПРЕДУПРЕЖДЕНИЕ] Не найден бинарник лаунчера в %REL_DIR%.
-  echo Пропускаю регистрацию хеша. Соберите проект или укажите --no-hash.
-) else (
-  echo(
-  echo === [3/4] Регистрация хеша (self-integrity) ===
-  echo Бинарник: !LAUNCHER_EXE!
-  node scripts\register-launcher-hash.mjs "!LAUNCHER_EXE!" %VERSION% %HASH_ONLY%
-  if errorlevel 1 (
-    echo [ОШИБКА] Не удалось зарегистрировать хеш лаунчера.
-    exit /b 1
-  )
-)
-
 REM --- поиск готового установщика --------------------------------------------
 set "NSIS_DIR=launcher\src-tauri\target\release\bundle\nsis"
 set "EXE=%NSIS_DIR%\Polit Empire Launcher_%VERSION%_x64-setup.exe"

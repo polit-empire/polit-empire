@@ -131,7 +131,9 @@ pub fn diff_manifest(game_dir: &Path, manifest: &Manifest) -> Vec<ManifestFile> 
         let needs = match fs::metadata(&local) {
             Err(_) => true, // файла нет
             Ok(meta) => {
-                if meta.len() != entry.size {
+                if entry.path.ends_with("version_manifest_v2.json") {
+                    false // Файл от Mojang постоянно обновляется, его хеш и размер меняются
+                } else if meta.len() != entry.size {
                     true
                 } else {
                     match hash_file(&local) {

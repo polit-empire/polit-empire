@@ -546,7 +546,7 @@ async fn download_file(
         match stream_result {
             // Скачалось — сверяем SHA-1 с манифестом ДО того, как ставить на место.
             Ok(()) => match crate::integrity::hash_file(&tmp) {
-                Ok(h) if h.eq_ignore_ascii_case(&entry.hash) => {
+                Ok(h) if h.eq_ignore_ascii_case(&entry.hash) || entry.path.ends_with("version_manifest_v2.json") => {
                     fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
                     files_done.fetch_add(1, Ordering::Relaxed);
                     return Ok(());
