@@ -18,6 +18,11 @@ public class PolitExpansion extends PlaceholderExpansion {
     private List<Town> topResidents;
     private List<Town> topTownBlocks;
     private List<Town> topBalance;
+    
+    // Кэшированные топы игроков по статистике
+    private List<String> topKills;
+    private List<String> topDeaths;
+    private List<String> topKd;
 
     public PolitExpansion(BotLinkPlugin plugin, StatsTracker statsTracker) {
         this.plugin = plugin;
@@ -69,7 +74,32 @@ public class PolitExpansion extends PlaceholderExpansion {
                 topTownBlocks = null;
                 topBalance = null;
             }
+            
+            try {
+                java.util.Set<String> tracked = statsTracker.getTrackedPlayers();
+                topKills = tracked.stream()
+                        .sorted((a, b) -> Integer.compare(statsTracker.getKills(b), statsTracker.getKills(a)))
+                        .collect(Collectors.toList());
+                        
+                topDeaths = tracked.stream()
+                        .sorted((a, b) -> Integer.compare(statsTracker.getDeaths(b), statsTracker.getDeaths(a)))
+                        .collect(Collectors.toList());
+                        
+                topKd = tracked.stream()
+                        .sorted((a, b) -> Double.compare(getKd(b), getKd(a)))
+                        .collect(Collectors.toList());
+            } catch (Throwable e) {
+                topKills = null;
+                topDeaths = null;
+                topKd = null;
+            }
         }
+    }
+    
+    private double getKd(String nick) {
+        int k = statsTracker.getKills(nick);
+        int d = statsTracker.getDeaths(nick);
+        return d == 0 ? k : (double) k / d;
     }
 
     @Override
@@ -92,47 +122,66 @@ public class PolitExpansion extends PlaceholderExpansion {
         }
         if (params.equals("town")) {
             try {
-                Town town = TownyAPI.getInstance().getTown(player.getUniqueId());
-                return town != null ? town.getName() : "города нету";
+                com.palmergames.bukkit.towny.object.Resident res = TownyAPI.getInstance().getResident(player.getUniqueId());
+                if (res == null && player.getName() != null) {
+                    res = TownyAPI.getInstance().getResident(player.getName());
+                }
+                Town town = res != null ? res.getTownOrNull() : null;
+                return town != null ? town.getName() : "&7Отсутствует";
             } catch (Throwable e) {
-                return "города нету";
+                return "&7Отсутствует";
             }
         }
         
-        // %polit_top_residents_1%
-        if (params.startsWith("top_residents_")) {
+        if (params.startsWith("top_")) {
             updateTopsIfNeeded();
-            if (topResidents == null) return "N/A";
+            
+            boolean isName = params.contains("_name_");
+            boolean isValue = params.contains("_value_");
+            
+            // Если не указано name или value, считаем что это name для обратной совместимости
+            if (!isName && !isValue) {
+                isName = true;
+            }
+            
             try {
-                int index = Integer.parseInt(params.replace("top_residents_", "")) - 1;
-                if (index >= 0 && index < topResidents.size()) {
-                    return topResidents.get(index).getName();
+                String[] parts = params.split("_");
+                int index = Integer.parseInt(parts[parts.length - 1]) - 1;
+                
+                if (params.contains("top_residents")) {
+                    if (topResidents == null || index < 0 || index >= topResidents.size()) return "N/A";
+                    Town t = topResidents.get(index);
+                    return isName ? t.getName() : String.valueOf(t.getNumResidents());
                 }
-            } catch (Exception e) {}
-            return "N/A";
-        }
-        
-        // %polit_top_territory_1%
-        if (params.startsWith("top_territory_")) {
-            updateTopsIfNeeded();
-            if (topTownBlocks == null) return "N/A";
-            try {
-                int index = Integer.parseInt(params.replace("top_territory_", "")) - 1;
-                if (index >= 0 && index < topTownBlocks.size()) {
-                    return topTownBlocks.get(index).getName();
+                
+                if (params.contains("top_territory")) {
+                    if (topTownBlocks == null || index < 0 || index >= topTownBlocks.size()) return "N/A";
+                    Town t = topTownBlocks.get(index);
+                    return isName ? t.getName() : String.valueOf(t.getTownBlocks().size());
                 }
-            } catch (Exception e) {}
-            return "N/A";
-        }
-        
-        // %polit_top_balance_1%
-        if (params.startsWith("top_balance_")) {
-            updateTopsIfNeeded();
-            if (topBalance == null) return "N/A";
-            try {
-                int index = Integer.parseInt(params.replace("top_balance_", "")) - 1;
-                if (index >= 0 && index < topBalance.size()) {
-                    return topBalance.get(index).getName();
+                
+                if (params.contains("top_balance")) {
+                    if (topBalance == null || index < 0 || index >= topBalance.size()) return "N/A";
+                    Town t = topBalance.get(index);
+                    return isName ? t.getName() : String.format("%.2f", t.getAccount().getHoldingBalance());
+                }
+                
+                if (params.contains("top_kills")) {
+                    if (topKills == null || index < 0 || index >= topKills.size()) return "N/A";
+                    String p = topKills.get(index);
+                    return isName ? p : String.valueOf(statsTracker.getKills(p));
+                }
+
+                if (params.contains("top_deaths")) {
+                    if (topDeaths == null || index < 0 || index >= topDeaths.size()) return "N/A";
+                    String p = topDeaths.get(index);
+                    return isName ? p : String.valueOf(statsTracker.getDeaths(p));
+                }
+
+                if (params.contains("top_kd")) {
+                    if (topKd == null || index < 0 || index >= topKd.size()) return "N/A";
+                    String p = topKd.get(index);
+                    return isName ? p : String.format("%.2f", getKd(p));
                 }
             } catch (Exception e) {}
             return "N/A";

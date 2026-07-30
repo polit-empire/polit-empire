@@ -77,7 +77,8 @@ pub async fn get_player_stats() -> PlayerStats {
     
     // Этот эндпоинт расположен на сайте
     let url = format!(
-        "https://polit-empire.com/api/player/stats?username={}",
+        "{}/api/player/stats?username={}",
+        crate::config::api_base(),
         urlencode(nickname)
     );
     
@@ -106,7 +107,8 @@ async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let nickname = settings.nickname.as_deref()?;
 
     let url = format!(
-        "https://polit-empire-bots.onrender.com/api/player/playtime?username={}",
+        "{}/api/player/playtime?username={}",
+        crate::config::api_base(),
         urlencode(nickname)
     );
 

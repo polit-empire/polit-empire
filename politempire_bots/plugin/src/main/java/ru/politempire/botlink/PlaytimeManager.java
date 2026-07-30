@@ -35,7 +35,7 @@ import com.google.gson.JsonElement;
  * Хранение: только в БД (через bot API). На диске сервера НИЧЕГО не сохраняется.
  *
  * Публичный API для других плагинов:
- *   PlaytimeManager.get(plugin).getPlaytimeSeconds(player)  — int, из кэша
+ *   PlaytimeManager.get(plugin).getPlaytimeSeconds(player)  — int, из кэша (или -1 если загружается)
  *   PlaytimeManager.get(plugin).getPlaytimeFormatted(player) — "1ч 23м"
  *   PlaytimeManager.get(plugin).fetchPlaytimeAsync(player)   — CompletableFuture<Integer>
  */
@@ -83,7 +83,7 @@ public final class PlaytimeManager {
         this.baseUrl = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
         this.secret = plugin.getConfig().getString("api-secret", "");
         this.http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(15))
                 .build();
     }
 
@@ -171,20 +171,16 @@ public final class PlaytimeManager {
      * @return секунд, или 0 если данных нет.
      */
     public int getPlaytimeSeconds(Player player) {
-        int cached = playtimeCache.getOrDefault(player.getName(), 0);
+        int cached = playtimeCache.getOrDefault(player.getName(), -1);
         long fetchMs = lastFetchTime.getOrDefault(player.getName(), 0L);
-        if (fetchMs > 0) {
+        if (fetchMs > 0 && cached >= 0) {
             long elapsedSecs = (System.currentTimeMillis() - fetchMs) / 1000;
             if (elapsedSecs > 0) {
                 cached += (int) elapsedSecs;
             }
-        } else {
-            long sessionMs = sessionStart.getOrDefault(player.getUniqueId(), 0L);
-            if (sessionMs > 0) {
-                cached += (int) ((System.currentTimeMillis() - sessionMs) / 1000);
-            }
+            return cached;
         }
-        return cached;
+        return -1; // Данные ещё не загрузились
     }
 
     /**
@@ -192,7 +188,7 @@ public final class PlaytimeManager {
      * Не включает время текущей сессии (только сохранённое в БД).
      */
     public int getPlaytimeSeconds(String username) {
-        return playtimeCache.getOrDefault(username, 0);
+        return playtimeCache.getOrDefault(username, -1);
     }
 
     /**
@@ -213,7 +209,7 @@ public final class PlaytimeManager {
     public CompletableFuture<Integer> fetchPlaytimeAsync(String username) {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/player/playtime?username=" + urlEncode(username)))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofSeconds(15))
                 .header("X-Api-Secret", secret)
                 .header("Accept", "application/json")
                 .GET()
@@ -221,6 +217,8 @@ public final class PlaytimeManager {
         return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .handle((resp, err) -> {
                     if (err != null || resp == null || resp.statusCode() != 200) {
+                        String msg = (err != null) ? err.getMessage() : ("HTTP " + (resp != null ? resp.statusCode() : "null"));
+                        log.warning("[BotLink] Ошибка загрузки времени для " + username + ": " + msg);
                         return -1;
                     }
                     return parsePlaytime(resp.body());
@@ -234,7 +232,7 @@ public final class PlaytimeManager {
     public CompletableFuture<List<TopEntry>> fetchTopPlaytimeAsync(int limit) {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/player/playtime/top?limit=" + limit))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofSeconds(15))
                 .header("X-Api-Secret", secret)
                 .header("Accept", "application/json")
                 .GET()
@@ -266,11 +264,11 @@ public final class PlaytimeManager {
      * @return баланс DC, или 0 если данных нет.
      */
     public int getDcBalance(Player player) {
-        return dcCache.getOrDefault(player.getName(), 0);
+        return dcCache.getOrDefault(player.getName(), -1);
     }
 
     public int getDcBalance(String username) {
-        return dcCache.getOrDefault(username, 0);
+        return dcCache.getOrDefault(username, -1);
     }
 
     /**
@@ -280,7 +278,7 @@ public final class PlaytimeManager {
     public CompletableFuture<Integer> fetchBalanceAsync(String username) {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/player/balance?username=" + urlEncode(username)))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofSeconds(15))
                 .header("X-Api-Secret", secret)
                 .header("Accept", "application/json")
                 .GET()
@@ -288,6 +286,8 @@ public final class PlaytimeManager {
         return http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .handle((resp, err) -> {
                     if (err != null || resp == null || resp.statusCode() != 200) {
+                        String msg = (err != null) ? err.getMessage() : ("HTTP " + (resp != null ? resp.statusCode() : "null"));
+                        log.warning("[BotLink] Ошибка загрузки DC баланса для " + username + ": " + msg);
                         return -1;
                     }
                     return parseBalance(resp.body());
@@ -298,6 +298,7 @@ public final class PlaytimeManager {
 
     /** Форматирует секунды в "1ч 23м", "45м", "30с". */
     public static String formatTime(int totalSeconds) {
+        if (totalSeconds < 0) return "...";
         if (totalSeconds < 60) return totalSeconds + "с";
         int hours = totalSeconds / 3600;
         int minutes = (totalSeconds % 3600) / 60;

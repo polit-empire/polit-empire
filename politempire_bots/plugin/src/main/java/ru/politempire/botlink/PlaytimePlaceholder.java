@@ -53,6 +53,7 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
         // DC-баланс
         if (params.toLowerCase().startsWith("dc")) {
             int dc = pm.getDcBalance(player);
+            if (dc < 0) return "...";
             String lower = params.toLowerCase();
             if (lower.equals("dc")) return String.valueOf(dc);
             if (lower.equals("dc_formatted")) return dc + " DC";
@@ -93,6 +94,7 @@ public final class PlaytimePlaceholder extends PlaceholderExpansion {
         }
 
         int seconds = pm.getPlaytimeSeconds(player);
+        if (seconds < 0) return "...";
 
         return switch (key) {
             case "playtime", "formatted", "" -> pm.getPlaytimeFormatted(player);

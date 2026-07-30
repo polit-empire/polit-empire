@@ -64,6 +64,10 @@ public class StatsTracker implements Listener {
         return config.getInt(nick + ".deaths", 0);
     }
 
+    public java.util.Set<String> getTrackedPlayers() {
+        return config.getKeys(false);
+    }
+
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
@@ -93,12 +97,16 @@ public class StatsTracker implements Listener {
             try {
                 Player p = Bukkit.getPlayer(nick);
                 if (p != null) {
-                    Town town = TownyAPI.getInstance().getTown(p);
-                    if (town != null) {
-                        townName = town.getName();
+                    com.palmergames.bukkit.towny.object.Resident res = TownyAPI.getInstance().getResident(p.getUniqueId());
+                    if (res == null) res = TownyAPI.getInstance().getResident(p.getName());
+                    if (res != null) {
+                        Town town = res.getTownOrNull();
+                        if (town != null) {
+                            townName = town.getName();
+                        }
                     }
                 }
-            } catch (NoClassDefFoundError ignored) {
+            } catch (Throwable ignored) {
                 // Towny не установлен
             }
 
