@@ -545,7 +545,7 @@ async function runMigration() {
     const privileges: Array<[string, string, number, string, string]> = [
       ["Солдат", "Базовая привилегия: цветной ник, /kit soldier, доступ к /hat.", 150, "soldat", "sky"],
       ["Сержант", "Расширенные команды, /kit sergeant, приоритетный вход.", 250, "serzhant", "emerald"],
-      ["Коман��ир", "Наборы техники, /kit commander, доступ к /feed и /heal.", 450, "komandir", "amber"],
+      ["Командир", "Наборы техники, /kit commander, доступ к /feed и /heal.", 450, "komandir", "amber"],
       ["Генерал", "Максимум привилегий: все киты, /fly в лобби, префикс «Генерал».", 650, "general", "rose"],
     ]
     let order = 0
@@ -585,6 +585,16 @@ async function runMigration() {
       UNIQUE KEY uq_wiki_slug (slug),
       INDEX idx_wiki_published (is_published),
       INDEX idx_wiki_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS player_stats (
+      minecraft_nick VARCHAR(32) NOT NULL PRIMARY KEY,
+      kills          INT NOT NULL DEFAULT 0,
+      deaths         INT NOT NULL DEFAULT 0,
+      town           VARCHAR(64) NULL,
+      updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 

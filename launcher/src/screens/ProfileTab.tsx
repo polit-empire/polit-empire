@@ -10,6 +10,12 @@ interface PlaytimeStats {
   last_played_unix: number
 }
 
+interface PlayerStats {
+  kills: number
+  deaths: number
+  town: string | null
+}
+
 interface Props {
   nickname: string
 }
@@ -34,6 +40,7 @@ export default function ProfileTab({ nickname }: Props) {
   const [error, setError] = useState("")
   const [cacheBust, setCacheBust] = useState(() => Date.now())
   const [playtime, setPlaytime] = useState<PlaytimeStats | null>(null)
+  const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
 
   useEffect(() => {
     invoke<string | null>("get_skin_url")
@@ -44,6 +51,10 @@ export default function ProfileTab({ nickname }: Props) {
   useEffect(() => {
     invoke<PlaytimeStats>("get_playtime_stats")
       .then(setPlaytime)
+      .catch(() => {})
+      
+    invoke<PlayerStats>("get_player_stats")
+      .then(setPlayerStats)
       .catch(() => {})
   }, [])
 
@@ -167,6 +178,32 @@ export default function ProfileTab({ nickname }: Props) {
                   <span>Лучшая: {formatPlaytime(playtime.longest_session_seconds)}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {playerStats && (
+            <div className="rounded-lg border border-border bg-card/60 p-4">
+              <p className="text-xs text-muted">Игровая статистика</p>
+              <div className="mt-2 flex flex-col gap-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted">Город:</span>
+                  <span className="font-bold text-foreground">{playerStats.town || "Нет города"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted">Убийства / Смерти:</span>
+                  <span className="font-bold text-foreground">
+                    {playerStats.kills} / {playerStats.deaths}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted">K/D:</span>
+                  <span className="font-bold text-emerald-500">
+                    {playerStats.deaths === 0 
+                      ? playerStats.kills.toFixed(2) 
+                      : (playerStats.kills / playerStats.deaths).toFixed(2)}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

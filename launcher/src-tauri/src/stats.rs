@@ -59,6 +59,47 @@ pub async fn get_playtime_stats() -> PlaytimeStats {
     fetch_server_playtime().await.unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerStats {
+    pub kills: i32,
+    pub deaths: i32,
+    pub town: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_player_stats() -> PlayerStats {
+    let default = PlayerStats { kills: 0, deaths: 0, town: None };
+    let settings = crate::config::load_settings();
+    let nickname = match settings.nickname.as_deref() {
+        Some(n) => n,
+        None => return default,
+    };
+    
+    // Этот эндпоинт расположен на сайте
+    let url = format!(
+        "https://polit-empire.com/api/player/stats?username={}",
+        urlencode(nickname)
+    );
+    
+    let client = reqwest::Client::new();
+    let resp = match client
+        .get(&url)
+        .header("Accept", "application/json")
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return default,
+    };
+
+    if !resp.status().is_success() {
+        return default;
+    }
+
+    resp.json::<PlayerStats>().await.unwrap_or(default)
+}
+
 /// Запрашивает наигранное время у bot API (БД MySQL).
 async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let settings = crate::config::load_settings();

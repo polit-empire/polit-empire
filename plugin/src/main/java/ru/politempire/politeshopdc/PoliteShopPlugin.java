@@ -15,11 +15,14 @@ import org.bukkit.plugin.java.JavaPlugin;
  */
 public final class PoliteShopPlugin extends JavaPlugin implements Listener {
     private BalanceService service;
+    private StatsTracker statsTracker;
     private String loadingText = "...";
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        
+        statsTracker = new StatsTracker(this);
         reloadFromConfig();
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") == null) {
@@ -29,6 +32,7 @@ public final class PoliteShopPlugin extends JavaPlugin implements Listener {
         }
 
         new DcExpansion(this, service).register();
+        new PolitExpansion(this, statsTracker).register();
 
         if (!service.isConfigured()) {
             getLogger().warning("Не заданы site-url и/или mod-admin-key в config.yml — "
@@ -40,10 +44,24 @@ public final class PoliteShopPlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 service.refresh(p.getName());
+                statsTracker.syncPlayer(p.getName());
             }
         }, 40L, period);
 
         getServer().getPluginManager().registerEvents(this, this);
+        
+        getCommand("polit").setExecutor((sender, command, label, args) -> {
+            if (args.length > 0 && args[0].equalsIgnoreCase("wipe")) {
+                if (!sender.hasPermission("polit.admin")) {
+                    sender.sendMessage("§cНет прав.");
+                    return true;
+                }
+                statsTracker.wipeStats();
+                sender.sendMessage("§aСтатистика (K/D/Города) очищена.");
+                return true;
+            }
+            return false;
+        });
 
         getLogger().info("PoliteShopDC включён. Плейсхолдер: %donatecoin%");
     }
@@ -51,6 +69,7 @@ public final class PoliteShopPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         requestRefresh(event.getPlayer().getName());
+        statsTracker.syncPlayer(event.getPlayer().getName());
     }
 
     private void reloadFromConfig() {
@@ -63,6 +82,7 @@ public final class PoliteShopPlugin extends JavaPlugin implements Listener {
             service.update(site, key);
         }
         service.setMinIntervalMs(Math.max(5, getConfig().getInt("refresh-seconds", 600)) * 1000L);
+        statsTracker.updateConfig(site, key);
     }
 
     /** Запрос на фоновое обновление баланса конкретного игрока. */

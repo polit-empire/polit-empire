@@ -203,6 +203,21 @@ export function PlayersPanel() {
     }
   }
 
+  async function wipeStats() {
+    if (!window.confirm("Очистить ВСЮ статистику (Убийства, Смерти, Города) перед вайпом? Это действие необратимо.")) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await postJson<{ message?: string }>("/api/admin/action", { action: "wipe_stats" })
+      setMsg({ ok: true, text: res.message || "Готово" })
+      await mutate()
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : "Ошибка" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (!selected) return
     setBusy(true)
@@ -259,6 +274,14 @@ export function PlayersPanel() {
           <span className="flex items-center gap-3">
             <span className="text-emerald-500">В игре: {loadedStatusCounts.inGame}</span>
             <span className="text-sky-500">Лаунчер: {loadedStatusCounts.launcher}</span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={wipeStats}
+              className="rounded border border-border px-2 py-0.5 text-[10px] font-medium transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
+            >
+              Вайп статистики
+            </button>
             <button
               type="button"
               disabled={busy}

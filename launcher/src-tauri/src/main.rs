@@ -111,6 +111,7 @@ fn main() {
             skins::delete_skin,
             skins::get_skin_url,
             stats::get_playtime_stats,
+            stats::get_player_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Polit Empire Launcher");

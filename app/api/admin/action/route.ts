@@ -106,6 +106,17 @@ export async function POST(req: Request) {
     })
     return NextResponse.json({ ok: true, message: `Наигранное время сброшено у ${affected} игроков` })
   }
+  
+  if (action === "wipe_stats") {
+    await db.query("TRUNCATE TABLE player_stats")
+    await logAdminAction({
+      adminNick,
+      action: "wipe_stats",
+      detail: "Полный сброс статистики (K/D/Towny)",
+      ip,
+    })
+    return NextResponse.json({ ok: true, message: "Статистика успешно очищена" })
+  }
 
   // Остальные действия работают с конкретным игроком.
   if (typeof b.nick !== "string" || !b.nick.trim()) {
