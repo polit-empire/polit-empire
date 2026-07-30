@@ -49,13 +49,13 @@ export default function ProfileTab({ nickname }: Props) {
   }, [])
 
   useEffect(() => {
-    invoke<PlaytimeStats>("get_playtime_stats")
-      .then(setPlaytime)
-      .catch(() => {})
-      
-    invoke<PlayerStats>("get_player_stats")
-      .then(setPlayerStats)
-      .catch(() => {})
+    Promise.allSettled([
+      invoke<PlaytimeStats>("get_playtime_stats"),
+      invoke<PlayerStats>("get_player_stats")
+    ]).then(([playtimeRes, statsRes]) => {
+      if (playtimeRes.status === "fulfilled") setPlaytime(playtimeRes.value)
+      if (statsRes.status === "fulfilled") setPlayerStats(statsRes.value)
+    })
   }, [])
 
   // Инициализация и обновление 3D-просмотрщика
@@ -198,9 +198,12 @@ export default function ProfileTab({ nickname }: Props) {
                 <div className="flex items-center justify-between">
                   <span className="text-muted">K/D:</span>
                   <span className="font-bold text-emerald-500">
-                    {playerStats.deaths === 0 
-                      ? playerStats.kills.toFixed(2) 
-                      : (playerStats.kills / playerStats.deaths).toFixed(2)}
+                    {(() => {
+                      if (!playerStats) return "0.00"
+                      const k = Number(playerStats.kills) || 0
+                      const d = Number(playerStats.deaths) || 0
+                      return (d === 0 ? k : k / d).toFixed(2)
+                    })()}
                   </span>
                 </div>
               </div>

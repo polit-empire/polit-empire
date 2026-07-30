@@ -86,7 +86,7 @@ pub async fn get_player_stats() -> PlayerStats {
     let resp = match client
         .get(&url)
         .header("Accept", "application/json")
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
     {
@@ -116,7 +116,7 @@ async fn fetch_server_playtime() -> Option<PlaytimeStats> {
     let resp = client
         .get(&url)
         .header("Accept", "application/json")
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
         .ok()?;

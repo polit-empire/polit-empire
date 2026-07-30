@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const url = `${botApiBase}/api/player/playtime?username=${encodeURIComponent(username)}`
     const resp = await fetch(url, {
       headers: { "X-Api-Secret": apiSecret, Accept: "application/json" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(15000),
     })
     const data = await resp.json()
     return Response.json(data, { status: resp.status })
