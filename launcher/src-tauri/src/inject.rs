@@ -241,20 +241,41 @@ const HEARTBEAT_TIMEOUT_MS: u64 = 20_000;
 #[cfg(windows)]
 pub fn inject_into(pid: u32) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+    use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
-        TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
+        MODULEENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
     };
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
     use windows_sys::Win32::System::Memory::{
-        VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
+        MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
     };
     use windows_sys::Win32::System::Threading::{
-        CreateRemoteThread, OpenProcess, WaitForSingleObject,
+        WaitForSingleObject,
         PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION,
         PROCESS_VM_READ, PROCESS_VM_WRITE,
     };
+
+    unsafe fn get_api<T>(module: &str, func: &str) -> Option<T> {
+        use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
+        let wide: Vec<u16> = std::ffi::OsStr::new(module).encode_wide().chain(std::iter::once(0)).collect();
+        let mut handle = GetModuleHandleW(wide.as_ptr());
+        if handle.is_null() { handle = LoadLibraryW(wide.as_ptr()); }
+        if handle.is_null() { return None; }
+        let c_func = std::ffi::CString::new(func).unwrap();
+        let addr = GetProcAddress(handle, c_func.as_ptr() as *const u8);
+        if addr.is_none() { return None; }
+        Some(std::mem::transmute_copy(&addr))
+    }
+
+    type OpenProcessFn = unsafe extern "system" fn(u32, i32, u32) -> HANDLE;
+    type VirtualAllocExFn = unsafe extern "system" fn(HANDLE, *const core::ffi::c_void, usize, u32, u32) -> *mut core::ffi::c_void;
+    type WriteProcessMemoryFn = unsafe extern "system" fn(HANDLE, *const core::ffi::c_void, *const core::ffi::c_void, usize, *mut usize) -> i32;
+    type CreateRemoteThreadFn = unsafe extern "system" fn(HANDLE, *const core::ffi::c_void, usize, Option<unsafe extern "system" fn(*mut core::ffi::c_void) -> u32>, *const core::ffi::c_void, u32, *mut u32) -> HANDLE;
+
+    let p_OpenProcess: OpenProcessFn = unsafe { get_api("kernel32.dll", "OpenProcess").unwrap() };
+    let p_VirtualAllocEx: VirtualAllocExFn = unsafe { get_api("kernel32.dll", "VirtualAllocEx").unwrap() };
+    let p_WriteProcessMemory: WriteProcessMemoryFn = unsafe { get_api("kernel32.dll", "WriteProcessMemory").unwrap() };
+    let p_CreateRemoteThread: CreateRemoteThreadFn = unsafe { get_api("kernel32.dll", "CreateRemoteThread").unwrap() };
 
     let dll_path = anticheat_dll_path();
     if !dll_path.exists() {
@@ -290,7 +311,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
             | PROCESS_VM_OPERATION
             | PROCESS_VM_WRITE
             | PROCESS_VM_READ;
-        let proc = OpenProcess(access, FALSE, pid);
+        let proc = p_OpenProcess(access, FALSE, pid);
         if proc.is_null() {
             return Err("Не удалось открыть процесс игры для защиты".into());
         }
@@ -302,7 +323,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
         }
 
         // Память под путь к DLL в адресном пространстве игры
-        let remote = VirtualAllocEx(
+        let remote = p_VirtualAllocEx(
             proc,
             std::ptr::null(),
             wide_bytes,
@@ -315,8 +336,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
         }
 
         let mut written = 0usize;
-        use windows_sys::Win32::System::Diagnostics::Debug::WriteProcessMemory;
-        if WriteProcessMemory(
+        if p_WriteProcessMemory(
             proc,
             remote,
             wide.as_ptr() as *const core::ffi::c_void,
@@ -341,7 +361,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
             return Err("LoadLibraryW недоступен".into());
         }
 
-        let thread = CreateRemoteThread(
+        let thread = p_CreateRemoteThread(
             proc,
             std::ptr::null(),
             0,
@@ -370,14 +390,22 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     unsafe fn module_present(pid: u32, name_lower: &str) -> bool {
         use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+        
+        type CreateToolhelp32SnapshotFn = unsafe extern "system" fn(u32, u32) -> HANDLE;
+        type Module32FirstWFn = unsafe extern "system" fn(HANDLE, *mut MODULEENTRY32W) -> i32;
+        type Module32NextWFn = unsafe extern "system" fn(HANDLE, *mut MODULEENTRY32W) -> i32;
+        let p_CreateToolhelp32Snapshot: CreateToolhelp32SnapshotFn = get_api("kernel32.dll", "CreateToolhelp32Snapshot").unwrap();
+        let p_Module32FirstW: Module32FirstWFn = get_api("kernel32.dll", "Module32FirstW").unwrap();
+        let p_Module32NextW: Module32NextWFn = get_api("kernel32.dll", "Module32NextW").unwrap();
+
+        let snap = p_CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
         if snap == INVALID_HANDLE_VALUE {
             return false;
         }
         let mut entry: MODULEENTRY32W = std::mem::zeroed();
         entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
         let mut found = false;
-        if Module32FirstW(snap, &mut entry) != 0 {
+        if p_Module32FirstW(snap, &mut entry) != 0 {
             loop {
                 let len = entry
                     .szModule
@@ -389,7 +417,7 @@ pub fn inject_into(pid: u32) -> Result<(), String> {
                     found = true;
                     break;
                 }
-                if Module32NextW(snap, &mut entry) == 0 {
+                if p_Module32NextW(snap, &mut entry) == 0 {
                     break;
                 }
             }
