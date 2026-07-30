@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import useSWR from "swr"
 import useSWRInfinite from "swr/infinite"
-import { Ban, ChevronDown, Coins, Crown, Gamepad2, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, Search, ShieldAlert, ShieldCheck, Trash2, UserCog, Users } from "lucide-react"
+import { Ban, ChevronDown, Coins, Crown, Gamepad2, KeyRound, LoaderCircle, LogOut, MonitorSmartphone, Search, ShieldAlert, ShieldCheck, Timer, Trash2, UserCog, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { jsonFetcher, postJson } from "@/lib/fetcher"
 import type { DonateProduct } from "@/lib/donate"
@@ -188,6 +188,21 @@ export function PlayersPanel() {
     }
   }
 
+  async function resetAllPlaytime() {
+    if (!window.confirm("Сбросить наигранное время ВСЕМ игрокам? Это действие необратимо.")) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await postJson<{ message?: string }>("/api/admin/action", { action: "reset_all_playtime" })
+      setMsg({ ok: true, text: res.message || "Готово" })
+      await mutate()
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : "Ошибка" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function act(action: string, extra: Record<string, unknown> = {}) {
     if (!selected) return
     setBusy(true)
@@ -244,6 +259,14 @@ export function PlayersPanel() {
           <span className="flex items-center gap-3">
             <span className="text-emerald-500">В игре: {loadedStatusCounts.inGame}</span>
             <span className="text-sky-500">Лаунчер: {loadedStatusCounts.launcher}</span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={resetAllPlaytime}
+              className="rounded border border-border px-2 py-0.5 text-[10px] font-medium transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
+            >
+              Сбросить время всем
+            </button>
           </span>
         </div>
 
@@ -556,6 +579,22 @@ export function PlayersPanel() {
                   </button>
                 </div>
               </div>
+            </Card>
+
+            {/* Управление аккаунтом */}
+            <Card className="flex flex-col gap-3">
+              <h4 className="flex items-center gap-2 text-sm font-semibold">
+                <Timer className="size-4 text-primary" /> Наигранное время
+              </h4>
+              <p className="text-xs text-muted-foreground">Сбросить статистику наигранного времени для этого игрока.</p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => act("reset_playtime")}
+                className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-destructive hover:text-destructive disabled:opacity-50"
+              >
+                <Timer className="size-4" /> Сбросить время
+              </button>
             </Card>
 
             {/* Управление аккаунтом */}

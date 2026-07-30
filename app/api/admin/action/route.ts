@@ -94,6 +94,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 502 })
   }
 
+  // Глобальные действия (не требуют ник).
+  if (action === "reset_all_playtime") {
+    const [result] = await db.query("DELETE FROM bot_playtime")
+    const affected = (result as { affectedRows?: number }).affectedRows ?? 0
+    await logAdminAction({
+      adminNick,
+      action: "reset_all_playtime",
+      detail: `Сброс наигранного времени у ${affected} игроков`,
+      ip,
+    })
+    return NextResponse.json({ ok: true, message: `Наигранное время сброшено у ${affected} игроков` })
+  }
+
   // Остальные действия работают с конкретным игроком.
   if (typeof b.nick !== "string" || !b.nick.trim()) {
     return NextResponse.json({ error: "bad request" }, { status: 400 })
@@ -282,6 +295,17 @@ export async function POST(req: Request) {
           ip,
         })
         return NextResponse.json({ ok: true, message: `Аккаунт ${nick} удалён` })
+      }
+      case "reset_playtime": {
+        await db.query("DELETE FROM bot_playtime WHERE mc_username = ?", [nick])
+        await logAdminAction({
+          adminNick,
+          action: "reset_playtime",
+          targetNick: nick,
+          detail: "Сброс наигранного времени",
+          ip,
+        })
+        return NextResponse.json({ ok: true, message: `Наигранное время ${nick} сброшено` })
       }
       default:
         return NextResponse.json({ error: "неизвестное действие" }, { status: 400 })
