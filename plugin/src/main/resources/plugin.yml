@@ -1,19 +1,8 @@
 name: PoliteShopDC
 version: '${version}'
 main: ru.politempire.politeshopdc.PoliteShopPlugin
-api-version: '1.13'
+api-version: '1.21'
 author: PolitEmpire
-description: Плейсхолдеры и статистика для PolitEmpire
-commands:
-  polit:
-    description: Основная команда плагина PolitEmpire
-    permission: polit.admin
-    usage: /polit wipe
-permissions:
-  polit.admin:
-    description: Доступ к админ-командам
-    default: op
+description: Плейсхолдер %donatecoin% с балансом DC (данные с сайта).
 depend:
   - PlaceholderAPI
-softdepend:
-  - Towny

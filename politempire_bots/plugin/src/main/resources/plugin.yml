@@ -7,6 +7,7 @@ author: PolitEmpire
 
 softdepend:
   - PlaceholderAPI
+  - Towny
 
 commands:
   2fa:
@@ -15,8 +16,15 @@ commands:
   playtime:
     description: Показать наигранное время (своё или другого игрока)
     usage: /playtime [ник]
+  polit:
+    description: Основная команда для управления статистикой (wipe)
+    usage: /polit wipe
+    permission: polit.admin
 
 permissions:
   botlink.playtime.others:
     description: Просмотр наигранного времени других игроков
     default: true
+  polit.admin:
+    description: Управление административными командами (wipe)
+    default: op

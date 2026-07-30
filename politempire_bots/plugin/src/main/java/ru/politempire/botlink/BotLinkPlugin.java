@@ -67,10 +67,37 @@ public final class BotLinkPlugin extends JavaPlugin {
         // Регистрация плейсхолдера PlaceholderAPI (если установлен)
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new PlaytimePlaceholder().register();
-            getLogger().info("PlaceholderAPI найден, плейсхолдер %botlink_playtime% зарегистрирован.");
+            
+            StatsTracker statsTracker = new StatsTracker(this);
+            String siteUrl = getConfig().getString("site-url", "");
+            String modKey = getConfig().getString("mod-admin-key", "");
+            statsTracker.updateConfig(siteUrl, modKey);
+            
+            new PolitExpansion(this, statsTracker).register();
+            
+            // Запускаем синхронизацию статы
+            getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
+                for (var p : Bukkit.getOnlinePlayers()) {
+                    statsTracker.syncPlayer(p.getName());
+                }
+            }, 100L, 1200L); // раз в минуту
+            
+            getCommand("polit").setExecutor((sender, command, label, args) -> {
+                if (args.length > 0 && args[0].equalsIgnoreCase("wipe")) {
+                    if (!sender.hasPermission("polit.admin")) {
+                        sender.sendMessage("§cНет прав.");
+                        return true;
+                    }
+                    statsTracker.wipeStats();
+                    sender.sendMessage("§aСтатистика (K/D/Города) очищена.");
+                    return true;
+                }
+                return false;
+            });
+            
+            getLogger().info("PlaceholderAPI найден, плейсхолдеры зарегистрированы.");
         } else {
-            getLogger().info("PlaceholderAPI не установлен — плейсхолдер %botlink_playtime% недоступен. " +
-                    "Поставьте PlaceholderAPI для использования в скорборде/табе.");
+            getLogger().info("PlaceholderAPI не установлен — плейсхолдеры недоступны.");
         }
 
         getLogger().info("PolitEmpireBotLink включён. API: " + url);

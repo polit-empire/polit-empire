@@ -19,15 +19,12 @@ repositories {
     maven { url = 'https://repo.extendedclip.com/content/repositories/placeholderapi/' }
     // Резервный репозиторий для старых артефактов
     maven { url = 'https://oss.sonatype.org/content/repositories/snapshots' }
-    // Towny
-    maven { url = 'https://repo.glaremasters.me/repository/towny/' }
 }
 
 dependencies {
     // Сервер и PlaceholderAPI предоставляются рантаймом — только компиляция.
     compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
     compileOnly 'me.clip:placeholderapi:2.11.6'
-    compileOnly 'com.palmergames.bukkit.towny:towny:0.100.3.0'
 }
 
 tasks.withType(JavaCompile).configureEach {

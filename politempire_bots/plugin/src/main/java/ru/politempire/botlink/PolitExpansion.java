@@ -1,4 +1,4 @@
-package ru.politempire.politeshopdc;
+package ru.politempire.botlink;
 
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -10,7 +10,7 @@ import java.util.Comparator;
 import java.util.stream.Collectors;
 
 public class PolitExpansion extends PlaceholderExpansion {
-    private final PoliteShopPlugin plugin;
+    private final BotLinkPlugin plugin;
     private final StatsTracker statsTracker;
     
     // Кэшированные топы городов, чтобы не лагать
@@ -19,7 +19,7 @@ public class PolitExpansion extends PlaceholderExpansion {
     private List<Town> topTownBlocks;
     private List<Town> topBalance;
 
-    public PolitExpansion(PoliteShopPlugin plugin, StatsTracker statsTracker) {
+    public PolitExpansion(BotLinkPlugin plugin, StatsTracker statsTracker) {
         this.plugin = plugin;
         this.statsTracker = statsTracker;
     }

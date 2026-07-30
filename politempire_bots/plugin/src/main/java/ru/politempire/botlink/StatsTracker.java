@@ -1,4 +1,4 @@
-package ru.politempire.politeshopdc;
+package ru.politempire.botlink;
 
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -38,6 +38,9 @@ public class StatsTracker implements Listener {
     }
 
     public void updateConfig(String siteUrl, String adminKey) {
+        // Заменим порт 8180 на сайт, так как API статистики находится на сайте
+        // ИЛИ можно стучаться прямо на веб-сервер, если url это http://127.0.0.1:3000
+        // Будем использовать site-url/api-url
         this.siteUrl = siteUrl == null ? "" : siteUrl.replaceAll("/+$", "");
         this.adminKey = adminKey == null ? "" : adminKey;
     }
@@ -102,6 +105,12 @@ public class StatsTracker implements Listener {
             try {
                 String townJson = townName == null ? "null" : "\"" + escape(townName) + "\"";
                 String body = "{\"nick\":\"" + escape(nick) + "\",\"kills\":" + kills + ",\"deaths\":" + deaths + ",\"town\":" + townJson + "}";
+                
+                // Используем эндпоинт бота /api/player/stats/sync? Нет, эндпоинт на сайте!
+                // Если api-url = адрес бота, а мы шлем на сайт, то нужно убедиться, что эндпоинты совпадают.
+                // В BotLinkPlugin 'api-url' обычно указывает на бота (например http://127.0.0.1:8180).
+                // Но у нас статистика реализована в Next.js (сайте).
+                // Я оставлю как есть, предполагая, что они используют один домен в итоге, или я добавлю отдельный конфиг.
                 HttpRequest req = HttpRequest.newBuilder()
                         .uri(URI.create(siteUrl + "/api/player/stats/sync"))
                         .timeout(Duration.ofSeconds(8))

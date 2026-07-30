@@ -3,6 +3,11 @@ api-url: "http://127.0.0.1:8180"
 # Должен совпадать с API_SECRET в .env бота
 api-secret: "CHANGE_ME"
 
+# Адрес основного сайта (для синхронизации статистики Towny/KD)
+site-url: "https://polit-empire.com"
+# Должен совпадать с MOD_ADMIN_KEY в .env сайта
+mod-admin-key: "CHANGE_ME"
+
 # Таймаут HTTP-запросов к боту, секунды
 http-timeout-seconds: 5
 
