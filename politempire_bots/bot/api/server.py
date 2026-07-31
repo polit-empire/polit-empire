@@ -317,7 +317,7 @@ async def _playtime_ticker() -> None:
                 now_ts = int(s["now_ts"]) if s.get("now_ts") is not None else 0
                 plugin_last_seen_ts = int(s["plugin_last_seen_ts"]) if s.get("plugin_last_seen_ts") is not None else now_ts
                 
-                if now_ts - plugin_last_seen_ts > 120:
+                if now_ts - plugin_last_seen_ts > 60:
                     log.info("Closing ghost session for %s (no keep-alive from plugin)", s["mc_username"])
                     await _close_session(s["mc_username"])
                     continue
