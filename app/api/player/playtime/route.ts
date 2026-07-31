@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     })
     const data = await resp.json()
     return Response.json(data, { status: resp.status })
-  } catch {
-    return Response.json({ error: "Failed to fetch playtime from bot API" }, { status: 502 })
+  } catch (err: any) {
+    return Response.json({ error: "Failed to fetch playtime from bot API", details: err?.message || String(err) }, { status: 502 })
   }
 }
