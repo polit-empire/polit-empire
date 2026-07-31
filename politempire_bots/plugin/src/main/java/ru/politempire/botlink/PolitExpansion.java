@@ -149,42 +149,42 @@ public class PolitExpansion extends PlaceholderExpansion {
                 int index = Integer.parseInt(parts[parts.length - 1]) - 1;
                 
                 if (params.contains("top_residents")) {
-                    if (topResidents == null || index < 0 || index >= topResidents.size()) return "N/A";
+                    if (topResidents == null || index < 0 || index >= topResidents.size()) return "---";
                     Town t = topResidents.get(index);
                     return isName ? t.getName() : String.valueOf(t.getNumResidents());
                 }
                 
                 if (params.contains("top_territory")) {
-                    if (topTownBlocks == null || index < 0 || index >= topTownBlocks.size()) return "N/A";
+                    if (topTownBlocks == null || index < 0 || index >= topTownBlocks.size()) return "---";
                     Town t = topTownBlocks.get(index);
                     return isName ? t.getName() : String.valueOf(t.getTownBlocks().size());
                 }
                 
                 if (params.contains("top_balance")) {
-                    if (topBalance == null || index < 0 || index >= topBalance.size()) return "N/A";
+                    if (topBalance == null || index < 0 || index >= topBalance.size()) return "---";
                     Town t = topBalance.get(index);
                     return isName ? t.getName() : String.format("%.2f", t.getAccount().getHoldingBalance());
                 }
                 
                 if (params.contains("top_kills")) {
-                    if (topKills == null || index < 0 || index >= topKills.size()) return "N/A";
+                    if (topKills == null || index < 0 || index >= topKills.size()) return "---";
                     String p = topKills.get(index);
                     return isName ? p : String.valueOf(statsTracker.getKills(p));
                 }
 
                 if (params.contains("top_deaths")) {
-                    if (topDeaths == null || index < 0 || index >= topDeaths.size()) return "N/A";
+                    if (topDeaths == null || index < 0 || index >= topDeaths.size()) return "---";
                     String p = topDeaths.get(index);
                     return isName ? p : String.valueOf(statsTracker.getDeaths(p));
                 }
 
                 if (params.contains("top_kd")) {
-                    if (topKd == null || index < 0 || index >= topKd.size()) return "N/A";
+                    if (topKd == null || index < 0 || index >= topKd.size()) return "---";
                     String p = topKd.get(index);
                     return isName ? p : String.format("%.2f", getKd(p));
                 }
             } catch (Exception e) {}
-            return "N/A";
+            return "---";
         }
 
         return null;

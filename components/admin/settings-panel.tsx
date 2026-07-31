@@ -70,11 +70,12 @@ function slugify(name: string): string {
 }
 
 export function SettingsPanel() {
-  const { data, mutate, isLoading } = useSWR<{ settings: Record<string, string> }>(
-    "/api/admin/settings",
-    jsonFetcher,
-  )
+  const { data, mutate, isLoading } = useSWR<{
+    settings: Record<string, string>
+    secretsSet: Record<string, boolean>
+  }>("/api/admin/settings", jsonFetcher)
   const [form, setForm] = useState<Record<string, string>>({})
+  const [secretsSet, setSecretsSet] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   // Базовый URL сайта для подсказки с адресом колбэка Donatello.
@@ -85,12 +86,19 @@ export function SettingsPanel() {
   }, [])
 
   useEffect(() => {
-    if (data?.settings) setForm(data.settings)
+    if (data?.settings) {
+      setForm(data.settings)
+      setSecretsSet(data.secretsSet || {})
+    }
   }, [data])
 
   function set(key: string, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
     setSaved(false)
+  }
+
+  function getSecretPlaceholder(key: string, defaultPlaceholder: string) {
+    return secretsSet[key] ? "******** (сохранено, введите для изменения)" : defaultPlaceholder
   }
 
   async function save() {
@@ -139,6 +147,7 @@ export function SettingsPanel() {
         sitesJson={form.vote_sites ?? "[]"}
         cooldown={form.vote_cooldown_hours ?? "24"}
         callbackKey={form.vote_callback_key ?? ""}
+        callbackKeyPlaceholder={getSecretPlaceholder("vote_callback_key", "придумайте случайный ключ")}
         siteUrl={form.site_url || siteUrl}
         onSitesChange={(v) => set("vote_sites", v)}
         onCooldownChange={(v) => set("vote_cooldown_hours", v)}
@@ -193,7 +202,7 @@ export function SettingsPanel() {
             type="password"
             value={form.mod_admin_key ?? ""}
             onChange={(e) => set("mod_admin_key", e.target.value)}
-            placeholder="придумайте случайный ключ"
+            placeholder={getSecretPlaceholder("mod_admin_key", "придумайте случайный ключ")}
           />
         </Field>
         <Field label="Команда выдачи предмета" hint="{nick} {item} {count} — для товаров типа «Предмет»">
@@ -242,6 +251,7 @@ export function SettingsPanel() {
             type="password"
             value={form.easydonate_shop_key ?? ""}
             onChange={(e) => set("easydonate_shop_key", e.target.value)}
+            placeholder={getSecretPlaceholder("easydonate_shop_key", "")}
           />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -288,7 +298,7 @@ export function SettingsPanel() {
             type="password"
             value={form.millida_api_key ?? ""}
             onChange={(e) => set("millida_api_key", e.target.value)}
-            placeholder="mtk_live_..."
+            placeholder={getSecretPlaceholder("millida_api_key", "mtk_live_...")}
           />
         </Field>
         <Field label="Webhook Secret" hint="Выдаётся при создании API-ключа с URL вебхука">
@@ -296,6 +306,7 @@ export function SettingsPanel() {
             type="password"
             value={form.millida_webhook_secret ?? ""}
             onChange={(e) => set("millida_webhook_secret", e.target.value)}
+            placeholder={getSecretPlaceholder("millida_webhook_secret", "")}
           />
         </Field>
       </Card>
@@ -362,7 +373,7 @@ export function SettingsPanel() {
             type="password"
             value={form.donatello_api_token ?? ""}
             onChange={(e) => set("donatello_api_token", e.target.value)}
-            placeholder="token"
+            placeholder={getSecretPlaceholder("donatello_api_token", "token")}
             className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
           />
         </div>
@@ -409,7 +420,7 @@ export function SettingsPanel() {
             type="password"
             value={form.donatello_callback_key ?? ""}
             onChange={(e) => set("donatello_callback_key", e.target.value)}
-            placeholder="придумайте случайный ключ"
+            placeholder={getSecretPlaceholder("donatello_callback_key", "придумайте случайный ключ")}
             className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
           />
         </div>
@@ -439,6 +450,7 @@ function VoteSitesCard({
   sitesJson,
   cooldown,
   callbackKey,
+  callbackKeyPlaceholder,
   siteUrl,
   onSitesChange,
   onCooldownChange,
@@ -447,6 +459,7 @@ function VoteSitesCard({
   sitesJson: string
   cooldown: string
   callbackKey: string
+  callbackKeyPlaceholder: string
   siteUrl: string
   onSitesChange: (json: string) => void
   onCooldownChange: (v: string) => void
@@ -493,7 +506,7 @@ function VoteSitesCard({
             type="password"
             value={callbackKey}
             onChange={(e) => onKeyChange(e.target.value)}
-            placeholder="придумайте случайный ключ"
+            placeholder={callbackKeyPlaceholder}
           />
         </Field>
       </div>

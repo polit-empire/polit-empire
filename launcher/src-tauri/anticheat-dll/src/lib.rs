@@ -1134,7 +1134,12 @@ mod imp {
                 if let Some(base) = baseline.get(&m.name_lc) {
                     let mut cur_hash = String::new();
                     if base.path_lc != m.path_lc {
-                        baseline_tampered = true;
+                        // Если новый путь ведёт в системную папку Windows, то это не подмена,
+                        // а легитимная загрузка системной версии (например, vcruntime140.dll
+                        // или opengl32.dll) поверх локальной копии из JRE/Minecraft.
+                        if !ctx.in_windows_dir(&m.path_lc) {
+                            baseline_tampered = true;
+                        }
                     } else if !base.hash.is_empty() {
                         cur_hash = sha256_file_cached(&m.path_raw);
                         if !cur_hash.is_empty() && cur_hash != base.hash {

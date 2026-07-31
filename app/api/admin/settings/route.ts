@@ -85,7 +85,9 @@ export async function PATCH(req: Request) {
     // Пустое значение секретного ключа не затирает уже сохранённый секрет —
     // так форма может слать замаскированное (пустое) поле, не стирая ключ.
     if (SECRET.has(k) && String(v).trim() === "") continue
-    await setSetting(k, String(v))
+    
+    const valueToSet = String(v) === "__CLEAR__" ? "" : String(v)
+    await setSetting(k, valueToSet)
     updated++
   }
   return NextResponse.json({ ok: true, updated })
