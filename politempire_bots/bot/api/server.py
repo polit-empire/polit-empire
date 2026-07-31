@@ -68,13 +68,13 @@ async def handle_player_join(request: web.Request) -> web.Response:
         except Exception:
             log.exception("Failed to insert into bot_auth_log")
 
-        # Открываем игровую сессию (сначала закрываем старую, если не была закрыта)
+        # Открываем игровую сессию
         await _close_session(username)
         try:
             await db.execute(
-                "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, ip) "
-                "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
-                "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), ip=VALUES(ip)",
+                "INSERT INTO bot_play_sessions (mc_username, joined_at, last_ticked_at, plugin_last_seen, ip) "
+                "VALUES (%s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s) "
+                "ON DUPLICATE KEY UPDATE joined_at=UTC_TIMESTAMP(), last_ticked_at=UTC_TIMESTAMP(), plugin_last_seen=UTC_TIMESTAMP(), ip=VALUES(ip)",
                 (username, ip),
             )
         except Exception:
@@ -215,6 +215,13 @@ async def handle_player_playtime(request: web.Request) -> web.Response:
         username = (request.query.get("username") or "").strip()
         if not username:
             return web.json_response({"error": "username required"}, status=400)
+            
+        if config.API_SECRET and request.headers.get("X-Api-Secret") == config.API_SECRET:
+            try:
+                await db.execute("UPDATE bot_play_sessions SET plugin_last_seen=UTC_TIMESTAMP() WHERE mc_username=%s", (username,))
+            except Exception:
+                pass
+                
         row = await db.fetchone(
             "SELECT total_seconds, session_count, longest_session_seconds, last_session_seconds "
             "FROM bot_playtime WHERE mc_username=%s", (username,)
@@ -302,10 +309,19 @@ async def _playtime_ticker() -> None:
             sessions = await db.fetchall(
                 "SELECT mc_username, UNIX_TIMESTAMP(joined_at) AS joined_ts, "
                 "UNIX_TIMESTAMP(COALESCE(last_ticked_at, joined_at)) AS ticked_ts, "
-                "UNIX_TIMESTAMP() AS now_ts FROM bot_play_sessions"
+                "UNIX_TIMESTAMP() AS now_ts, "
+                "UNIX_TIMESTAMP(plugin_last_seen) AS plugin_last_seen_ts "
+                "FROM bot_play_sessions"
             )
             for s in sessions:
                 now_ts = int(s["now_ts"]) if s.get("now_ts") is not None else 0
+                plugin_last_seen_ts = int(s["plugin_last_seen_ts"]) if s.get("plugin_last_seen_ts") is not None else now_ts
+                
+                if now_ts - plugin_last_seen_ts > 120:
+                    log.info("Closing ghost session for %s (no keep-alive from plugin)", s["mc_username"])
+                    await _close_session(s["mc_username"])
+                    continue
+                
                 joined_ts = int(s["joined_ts"]) if s.get("joined_ts") is not None else now_ts
                 ticked_ts = int(s["ticked_ts"]) if s.get("ticked_ts") is not None else joined_ts
                 delta = max(0, now_ts - ticked_ts)

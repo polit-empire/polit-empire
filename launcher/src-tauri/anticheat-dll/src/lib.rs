@@ -270,8 +270,8 @@ mod imp {
                 obf_str!("novoline"), obf_str!("rise"), obf_str!("moon"), obf_str!("inertia"),
                 obf_str!("konas"), obf_str!("wolfram"), obf_str!("seppuku"), obf_str!("jigsaw"),
                 obf_str!("koid"), obf_str!("rusherhack"), obf_str!("cheatbreaker"), obf_str!("cheatengine"),
-                obf_str!("speedhack"), obf_str!("xenon"), obf_str!("prestige"), obf_str!("raven"),
-                obf_str!("wexside"), obf_str!("entropy"), obf_str!("doomsday"),
+                obf_str!("speedhack"), obf_str!("xenon"), obf_str!("prestige"), obf_str!("krutdlc"),
+                obf_str!("wexside"), obf_str!("entropy"), obf_str!("doomsday"), obf_str!("huzuni"), obf_str!("baritone"),
             ]
         })
     }
