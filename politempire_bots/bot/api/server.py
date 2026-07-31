@@ -34,7 +34,8 @@ TICK_SECONDS = 10
 
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
-    if request.path.startswith("/api/") and request.path != "/api/health":
+    public_endpoints = ["/api/health", "/api/player/playtime", "/api/player/playtime/top"]
+    if request.path.startswith("/api/") and request.path not in public_endpoints:
         if not config.API_SECRET or request.headers.get("X-Api-Secret") != config.API_SECRET:
             return web.json_response({"error": "unauthorized"}, status=401)
     return await handler(request)
