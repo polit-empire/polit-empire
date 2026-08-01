@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronRight, AlertCircle } from "lucide-react"
@@ -14,7 +14,7 @@ interface Category {
   admin_only: number
 }
 
-export default function NewThreadPage() {
+function NewThreadForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const defaultCategory = searchParams.get("category") ?? ""
@@ -76,6 +76,112 @@ export default function NewThreadPage() {
   const selectedCat = categories.find((c) => c.slug === selectedCategory)
 
   return (
+    <div className="flex flex-col gap-5">
+      {/* Category */}
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+          Категория
+        </label>
+        <select
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors"
+        >
+          <option value="">Выберите категорию...</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.slug}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+        {selectedCat && (
+          <p className="mt-1 text-xs text-muted-foreground">{selectedCat.description}</p>
+        )}
+      </div>
+
+      {/* Title */}
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+          Заголовок темы
+        </label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={255}
+          placeholder="Кратко опишите суть темы..."
+          className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
+        />
+        <div className="mt-1 text-right text-xs text-muted-foreground">{title.length}/255</div>
+      </div>
+
+      {/* Body */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="text-sm font-medium text-muted-foreground">
+            Текст сообщения
+          </label>
+          <button
+            onClick={() => setPreview((p) => !p)}
+            className="text-xs text-primary hover:underline"
+            type="button"
+          >
+            {preview ? "← Редактор" : "Предпросмотр →"}
+          </button>
+        </div>
+
+        {preview ? (
+          <div
+            className="min-h-40 rounded-md border border-border bg-background px-4 py-3 text-sm leading-relaxed text-foreground"
+            dangerouslySetInnerHTML={{
+              __html: body
+                ? renderMarkdown(body)
+                : "<span class=\"text-muted-foreground italic\">Текст пуст</span>",
+            }}
+          />
+        ) : (
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={10}
+            placeholder="Опишите вашу тему подробно..."
+            className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground resize-y"
+          />
+        )}
+
+        <div className="mt-1.5 rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Поддерживается Markdown: **жирный**, *курсив*, `код`, ## заголовок, - список
+        </div>
+      </div>
+
+      {err && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+          <AlertCircle className="size-4 shrink-0" />
+          {err}
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={submit}
+          disabled={busy || !selectedCategory || !title.trim() || !body.trim()}
+          className="flex-1 rounded-md bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? "Публикуем..." : "Опубликовать тему"}
+        </button>
+        <Link
+          href="/forum"
+          className="rounded-md border border-border px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground hover:border-primary/50"
+        >
+          Отмена
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+export default function NewThreadPage() {
+  return (
     <main className="min-h-svh bg-background text-foreground">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
@@ -105,103 +211,16 @@ export default function NewThreadPage() {
 
         <h1 className="mb-8 font-mono text-3xl font-bold">Создать тему</h1>
 
-        <div className="flex flex-col gap-5">
-          {/* Category */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
-              Категория
-            </label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors"
-            >
-              <option value="">Выберите категорию...</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.slug}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-            {selectedCat && (
-              <p className="mt-1 text-xs text-muted-foreground">{selectedCat.description}</p>
-            )}
-          </div>
-
-          {/* Title */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
-              Заголовок темы
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={255}
-              placeholder="Кратко опишите суть темы..."
-              className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
-            />
-            <div className="mt-1 text-right text-xs text-muted-foreground">{title.length}/255</div>
-          </div>
-
-          {/* Body */}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-sm font-medium text-muted-foreground">
-                Текст сообщения
-              </label>
-              <button
-                onClick={() => setPreview((p) => !p)}
-                className="text-xs text-primary hover:underline"
-                type="button"
-              >
-                {preview ? "← Редактор" : "Предпросмотр →"}
-              </button>
+        {/* Wrap the part that uses useSearchParams in Suspense */}
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+              Загрузка...
             </div>
-
-            {preview ? (
-              <div
-                className="min-h-40 rounded-md border border-border bg-background px-4 py-3 text-sm leading-relaxed text-foreground"
-                dangerouslySetInnerHTML={{ __html: body ? renderMarkdown(body) : "<span class=\"text-muted-foreground italic\">Текст пуст</span>" }}
-              />
-            ) : (
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={10}
-                placeholder="Опишите вашу тему подробно..."
-                className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground resize-y"
-              />
-            )}
-
-            <div className="mt-1.5 rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Поддерживается Markdown: **жирный**, *курсив*, `код`, ## заголовок, - список
-            </div>
-          </div>
-
-          {err && (
-            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
-              <AlertCircle className="size-4 shrink-0" />
-              {err}
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <button
-              onClick={submit}
-              disabled={busy || !selectedCategory || !title.trim() || !body.trim()}
-              className="flex-1 rounded-md bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {busy ? "Публикуем..." : "Опубликовать тему"}
-            </button>
-            <Link
-              href="/forum"
-              className="rounded-md border border-border px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground hover:border-primary/50"
-            >
-              Отмена
-            </Link>
-          </div>
-        </div>
+          }
+        >
+          <NewThreadForm />
+        </Suspense>
       </div>
     </main>
   )
