@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { MessageSquare, ChevronRight } from "lucide-react"
+import ForumCategories from "./ForumCategories"
 
 export const metadata: Metadata = {
   title: "Форум — Polit Empire",
@@ -8,35 +9,7 @@ export const metadata: Metadata = {
     "Форум военно-политического Minecraft-сервера Polit Empire. Общение, вопросы, жалобы, предложения и объявления.",
 }
 
-import { getDb } from "@/lib/db"
-
-interface ForumCategory {
-  id: number
-  slug: string
-  name: string
-  description: string
-  icon: string
-  sort_order: number
-  admin_only: number
-  thread_count: number
-}
-
-async function getCategories(): Promise<ForumCategory[]> {
-  try {
-    const db = getDb()
-    const [rows] = await db.query(
-      "SELECT id, slug, name, description, icon, sort_order, admin_only, (SELECT COUNT(*) FROM forum_threads WHERE category_id = forum_categories.id AND status != 'deleted') AS thread_count FROM forum_categories WHERE is_active = 1 ORDER BY sort_order"
-    )
-    return (rows as ForumCategory[]) ?? []
-  } catch (err) {
-    console.error("Forum page error:", err)
-    return []
-  }
-}
-
 export default async function ForumPage() {
-  const categories = await getCategories()
-
   return (
     <main className="min-h-svh bg-background text-foreground">
       {/* Header */}
@@ -110,41 +83,8 @@ export default async function ForumPage() {
           </Link>
         </div>
 
-        {/* Categories */}
-        <div className="flex flex-col gap-3">
-          {categories.length === 0 ? (
-            <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-              Форум временно недоступен
-            </div>
-          ) : (
-            categories.map((cat) => (
-              <Link
-                key={cat.id}
-                href={`/forum/${cat.slug}`}
-                className="group flex items-center gap-4 rounded-lg border border-border bg-card p-5 transition-all hover:border-primary/40 hover:bg-card/80"
-              >
-                <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-2xl">
-                  {cat.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-mono font-semibold text-foreground group-hover:text-primary transition-colors">
-                    {cat.name}
-                  </h2>
-                  <p className="mt-0.5 text-sm text-muted-foreground line-clamp-1">
-                    {cat.description}
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="text-sm font-semibold text-foreground">
-                    {cat.thread_count}
-                  </span>
-                  <span className="text-xs text-muted-foreground">тем</span>
-                </div>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
-              </Link>
-            ))
-          )}
-        </div>
+        {/* Categories — client-side fetch */}
+        <ForumCategories />
       </div>
     </main>
   )
