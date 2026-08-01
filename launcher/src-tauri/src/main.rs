@@ -93,6 +93,7 @@ fn main() {
             auth::logout,
             config::get_settings,
             config::save_settings,
+            config::apply_server_selection,
             config::open_in_explorer,
             config::pick_java_file,
             config::pick_folder,

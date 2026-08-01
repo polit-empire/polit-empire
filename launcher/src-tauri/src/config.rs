@@ -38,6 +38,18 @@ static RESOLVED_API_HOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::n
 /// Проверка — лёгкий GET /api/news; ответ считается рабочим, только если это
 /// успешный НЕ-HTML ответ и нас не увели на заглушку анти-DDoS (/wait).
 pub async fn resolve_api_host() {
+    let settings = load_settings();
+    let selection = settings.server_selection.as_deref().unwrap_or("auto");
+
+    if selection == "main" {
+        *RESOLVED_API_HOST.lock().unwrap() = Some(api_direct_base());
+        return;
+    }
+    if selection == "reserve" {
+        *RESOLVED_API_HOST.lock().unwrap() = Some(api_fallback_base());
+        return;
+    }
+
     let client = reqwest::Client::new();
     for host in [api_direct_base(), api_fallback_base()] {
         let ok = match client
@@ -165,6 +177,9 @@ pub struct Settings {
     /// Включённые опциональные моды (имена файлов из манифеста GML)
     #[serde(default)]
     pub enabled_optional_mods: Vec<String>,
+    /// Выбор сервера (auto, main, reserve)
+    #[serde(default)]
+    pub server_selection: Option<String>,
 }
 
 impl Default for Settings {
@@ -179,6 +194,7 @@ impl Default for Settings {
             hwid: None,
             java_path: String::new(),
             enabled_optional_mods: Vec::new(),
+            server_selection: Some("auto".to_string()),
         }
     }
 }
@@ -241,6 +257,11 @@ pub fn get_settings() -> Settings {
 #[tauri::command]
 pub fn save_settings(settings: Settings) -> Result<(), String> {
     persist_settings(&settings)
+}
+
+#[tauri::command]
+pub async fn apply_server_selection() {
+    resolve_api_host().await;
 }
 
 /// Открывает путь в системном проводнике.

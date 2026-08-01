@@ -6,6 +6,7 @@ export interface Settings {
   user_uuid: string | null
   hwid: string | null
   java_path: string
+  server_selection: string | null
 }
 
 export interface LoginResponse {

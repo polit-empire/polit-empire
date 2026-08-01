@@ -429,7 +429,8 @@ function PurchaseModal({
   const title = product ? product.name : `Пополнение ${customDc} DC`
   const priceRub = product ? product.priceRub : customDc ?? 0
   const costDc = product?.priceRub ?? 0
-  const notEnough = isDcPurchase && balance < costDc
+  const finalCostDc = Math.max(0, costDc - (promoDiscount?.discountAmount ?? 0))
+  const notEnough = isDcPurchase && balance < finalCostDc
   const discountedPriceRub = Math.max(0, priceRub - (promoDiscount?.discountAmount ?? 0))
 
   async function validatePromo() {
@@ -705,7 +706,7 @@ function PurchaseModal({
                 {notEnough ? (
                   <div className="rounded-md border border-border bg-background p-4 text-center">
                     <p className="text-sm text-muted-foreground">
-                      Не хватает {costDc - balance} DC. Пополните баланс донат-коинами.
+                      Не хватает {finalCostDc - balance} DC. Пополните баланс донат-коинами.
                     </p>
                     <a
                       href="#dc"
@@ -727,7 +728,7 @@ function PurchaseModal({
                     ) : (
                       <Coins className="size-4" />
                     )}
-                    Купить за {costDc} DC
+                    Купить за {finalCostDc} DC
                   </button>
                 )}
               </>

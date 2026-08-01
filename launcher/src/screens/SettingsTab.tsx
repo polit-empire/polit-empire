@@ -84,6 +84,7 @@ export default function SettingsTab() {
     setError("")
     try {
       await invoke("save_settings", { settings })
+      await invoke("apply_server_selection")
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2000)
     } catch (e) {
@@ -215,6 +216,26 @@ export default function SettingsTab() {
               </button>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Network */}
+      <section className="rounded-lg border border-border bg-card/60 p-5">
+        <h3 className="text-sm font-semibold">Сервер (API)</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          Выбор сервера для лаунчера. Автоматический режим выберет наиболее доступный сервер.
+        </p>
+
+        <div className="mt-4 flex flex-col gap-2">
+          <select
+            value={settings.server_selection || "auto"}
+            onChange={(e) => setSettings({ ...settings, server_selection: e.target.value })}
+            className="w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+          >
+            <option value="auto">Авто (Рекомендуется)</option>
+            <option value="main">Основной (.ru)</option>
+            <option value="reserve">Резервный (.org)</option>
+          </select>
         </div>
       </section>
 
