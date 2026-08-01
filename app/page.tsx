@@ -73,6 +73,12 @@ export default function HomePage() {
             >
               Правила
             </Link>
+            <Link
+              href="/forum"
+              className="px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Форум
+            </Link>
             <a
               href={MAP_URL}
               target="_blank"

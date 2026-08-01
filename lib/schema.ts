@@ -598,6 +598,85 @@ async function runMigration() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
+  // Forum categories
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS forum_categories (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      slug        VARCHAR(64) NOT NULL,
+      name        VARCHAR(128) NOT NULL,
+      description TEXT NULL,
+      icon        VARCHAR(32) NOT NULL DEFAULT '💬',
+      sort_order  INT NOT NULL DEFAULT 0,
+      is_active   TINYINT(1) NOT NULL DEFAULT 1,
+      admin_only  TINYINT(1) NOT NULL DEFAULT 0,
+      UNIQUE KEY uq_forum_cat_slug (slug),
+      INDEX idx_forum_cat_sort (sort_order)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Forum threads (topics)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS forum_threads (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      category_id     INT NOT NULL,
+      author_nick     VARCHAR(32) NOT NULL,
+      title           VARCHAR(255) NOT NULL,
+      body            TEXT NOT NULL,
+      status          VARCHAR(16) NOT NULL DEFAULT 'open',
+      is_pinned       TINYINT(1) NOT NULL DEFAULT 0,
+      reply_count     INT NOT NULL DEFAULT 0,
+      last_reply_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      last_reply_nick VARCHAR(32) NULL,
+      created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_forum_thread_cat (category_id, is_pinned, last_reply_at),
+      INDEX idx_forum_thread_author (author_nick)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Forum replies
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS forum_replies (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      thread_id   INT NOT NULL,
+      author_nick VARCHAR(32) NOT NULL,
+      body        TEXT NOT NULL,
+      is_deleted  TINYINT(1) NOT NULL DEFAULT 0,
+      edited_at   TIMESTAMP NULL,
+      created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_forum_reply_thread (thread_id, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Forum mutes (separate from game mutes)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS forum_mutes (
+      minecraft_nick VARCHAR(32) NOT NULL PRIMARY KEY,
+      reason         TEXT NULL,
+      muted_by       VARCHAR(32) NOT NULL,
+      expires_at     TIMESTAMP NULL,
+      created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
+
+  // Seed default forum categories if empty
+  const [forumCatCount] = await db.query("SELECT COUNT(*) AS c FROM forum_categories")
+  if (((forumCatCount as Array<{ c: number }>)[0]?.c ?? 0) === 0) {
+    const cats: Array<[string, string, string, string, number, number]> = [
+      ["announcements", "📢 Объявления", "Официальные новости и объявления от администрации.", "📢", 0, 1],
+      ["general", "💬 Общение", "Общие темы для всех игроков.", "💬", 1, 0],
+      ["questions", "❓ Вопросы", "Вопросы по серверу и игровой механике.", "❓", 2, 0],
+      ["complaints", "⚠️ Жалобы", "Жалобы на игроков. Прикладывайте доказательства.", "⚠️", 3, 0],
+      ["suggestions", "💡 Предложения", "Ваши идеи для улучшения сервера.", "💡", 4, 0],
+      ["achievements", "🏆 Достижения", "Покажите свои достижения в игре.", "🏆", 5, 0],
+    ]
+    for (const [slug, name, description, icon, sort_order, admin_only] of cats) {
+      await db.query(
+        "INSERT INTO forum_categories (slug, name, description, icon, sort_order, admin_only) VALUES (?, ?, ?, ?, ?, ?)",
+        [slug, name, description, icon, sort_order, admin_only]
+      )
+    }
+  }
+
   console.log("[migrate] Schema is up to date.")
 }
 
