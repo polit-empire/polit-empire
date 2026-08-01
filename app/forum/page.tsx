@@ -8,6 +8,8 @@ export const metadata: Metadata = {
     "Форум военно-политического Minecraft-сервера Polit Empire. Общение, вопросы, жалобы, предложения и объявления.",
 }
 
+import { getDb } from "@/lib/db"
+
 interface ForumCategory {
   id: number
   slug: string
@@ -21,17 +23,13 @@ interface ForumCategory {
 
 async function getCategories(): Promise<ForumCategory[]> {
   try {
-    const baseUrl =
-      process.env.SITE_URL ||
-      process.env.PUBLIC_BASE_URL ||
-      "http://localhost:3000"
-    const res = await fetch(`${baseUrl}/api/forum/categories`, {
-      cache: "no-store",
-    })
-    if (!res.ok) return []
-    const data = await res.json()
-    return data.categories ?? []
-  } catch {
+    const db = getDb()
+    const [rows] = await db.query(
+      "SELECT id, slug, name, description, icon, sort_order, admin_only, (SELECT COUNT(*) FROM forum_threads WHERE category_id = forum_categories.id AND status != 'deleted') AS thread_count FROM forum_categories WHERE is_active = 1 ORDER BY sort_order"
+    )
+    return (rows as ForumCategory[]) ?? []
+  } catch (err) {
+    console.error("Forum page error:", err)
     return []
   }
 }

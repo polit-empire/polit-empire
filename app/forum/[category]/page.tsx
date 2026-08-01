@@ -3,6 +3,8 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ChevronRight, MessageSquare, Pin, Lock, Clock } from "lucide-react"
 
+import { getDb } from "@/lib/db"
+
 interface ThreadRow {
   id: number
   title: string
@@ -33,17 +35,43 @@ interface ThreadsData {
 
 async function getThreads(slug: string, page: number): Promise<ThreadsData | null> {
   try {
-    const baseUrl =
-      process.env.SITE_URL ||
-      process.env.PUBLIC_BASE_URL ||
-      "http://localhost:3000"
-    const res = await fetch(
-      `${baseUrl}/api/forum/threads?category=${slug}&page=${page}&limit=20`,
-      { cache: "no-store" }
+    const limit = 20
+    const offset = (page - 1) * limit
+    const db = getDb()
+
+    const [catRows] = await db.query(
+      "SELECT id, slug, name, description, icon FROM forum_categories WHERE slug = ? AND is_active = 1 LIMIT 1",
+      [slug]
     )
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
+    const catList = catRows as CategoryInfo[]
+    if (!catList[0]) return null
+    const category = catList[0]
+
+    const [countRows] = await db.query(
+      "SELECT COUNT(*) AS total FROM forum_threads WHERE category_id = ? AND status != 'deleted'",
+      [category.id]
+    )
+    const total = (countRows as Array<{ total: number }>)[0]?.total ?? 0
+
+    const [threads] = await db.query(
+      `SELECT t.id, t.category_id, t.author_nick, t.title, t.status, t.is_pinned,
+              t.reply_count, t.last_reply_at, t.last_reply_nick, t.created_at
+       FROM forum_threads t
+       WHERE t.category_id = ? AND t.status != 'deleted'
+       ORDER BY t.is_pinned DESC, t.last_reply_at DESC
+       LIMIT ? OFFSET ?`,
+      [category.id, limit, offset]
+    )
+
+    return {
+      category,
+      threads: threads as ThreadRow[],
+      total,
+      page,
+      limit,
+    }
+  } catch (err) {
+    console.error("Category page error:", err)
     return null
   }
 }
