@@ -34,8 +34,9 @@ pub fn preflight() -> Result<(), String> {
                 "Обнаружен отладчик, подключённый к лаунчеру. Закройте его и перезапустите.".into(),
             );
         }
-        if let Some(tool) = crate::security::scan_running_cheats() {
-            return Err(format!("Запущен запрещённый инструмент: {tool}. Закройте его и повторите."));
+        let cheats = crate::security::scan_running_cheats();
+        if !cheats.is_empty() {
+            return Err(format!("Запущен запрещённый инструмент: {}. Закройте его и повторите.", cheats[0]));
         }
         Ok(())
     }}
@@ -54,7 +55,8 @@ pub fn spawn_guard() {
             }
 
             if crate::launcher::is_game_running() {
-                if let Some(_tool) = crate::security::scan_running_cheats() {
+                let cheats = crate::security::scan_running_cheats();
+                if !cheats.is_empty() {
                     let _ = crate::launcher::kill_game();
                 }
             }

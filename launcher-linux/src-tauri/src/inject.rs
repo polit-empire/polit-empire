@@ -10,8 +10,17 @@ use crate::launcher::is_game_running;
 static MONITOR_RUNNING: AtomicBool = AtomicBool::new(false);
 
 pub fn prepare_session() -> Vec<(String, String)> {
-    // Без DLL передавать переменные окружения не нужно.
     vec![]
+}
+
+pub fn report_file_path() -> String {
+    String::new()
+}
+
+pub fn report_guard_event(_kind: &str, _detail: &str) {}
+
+pub fn start_monitor(_pid: u32) {
+    spawn_ac_monitor();
 }
 
 pub fn spawn_ac_monitor() {
@@ -29,10 +38,11 @@ pub fn spawn_ac_monitor() {
             }
 
             // Периодическое сканирование запущенных процессов-читов.
-            if let Some(cheat) = scan_running_cheats() {
+            let cheats = scan_running_cheats();
+            if !cheats.is_empty() {
                 crate::telemetry::report_launcher_log(
                     "error",
-                    &format!("Античит: Обнаружен запрещённый процесс ({cheat})"),
+                    &format!("Античит: Обнаружен запрещённый процесс ({})", cheats[0]),
                 );
                 let _ = crate::launcher::kill_game();
                 break;
@@ -46,11 +56,9 @@ pub fn spawn_ac_monitor() {
 }
 
 pub fn ensure_dll() -> Result<std::path::PathBuf, String> {
-    // Заглушка, инжект DLL на Linux вырезан.
     Ok(std::path::PathBuf::from("/dev/null"))
 }
 
 pub fn inject_dll(_pid: u32, _dll_path: &std::path::Path) -> Result<(), String> {
-    // Заглушка, инжект DLL на Linux вырезан.
     Ok(())
 }
