@@ -125,10 +125,16 @@ export default function HomePage() {
           <div className="flex flex-col items-center gap-3 sm:flex-row">
             <a
               id="download"
-              href="/api/launcher/download"
+              href="/api/launcher/download?os=win"
               className="rounded-md bg-primary px-6 py-3 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
             >
-              Скачать лаунчер (Windows)
+              Скачать (Windows)
+            </a>
+            <a
+              href="/api/launcher/download?os=linux"
+              className="rounded-md bg-secondary px-6 py-3 font-mono text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90"
+            >
+              Скачать (Linux)
             </a>
             <a
               href={MAP_URL}

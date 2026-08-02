@@ -27,7 +27,8 @@ export function clientIp(req: Request): string | null {
  */
 export function launcherVersionFromReq(req: Request): string | null {
   const ua = req.headers.get("user-agent") || ""
-  const m = ua.match(/PolitEmpire[^/]*\/([0-9][\w.\-]*)/i)
+  // Сматчит "2.2.18" или "2.2.18 (win)"
+  const m = ua.match(/PolitEmpire[^/]*\/([0-9][\w.\-]*\s*(?:\([^)]+\))?)/i)
   return m ? m[1].slice(0, 32) : null
 }
 

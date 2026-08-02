@@ -1,0 +1,7 @@
+node_modules
+dist
+# Артефакты сборки Rust
+src-tauri/target
+src-tauri/anticheat-dll/target
+# Собранная античит-DLL (создаётся build-скриптом, не коммитим)
+src-tauri/anticheat/pe_anticheat.dll

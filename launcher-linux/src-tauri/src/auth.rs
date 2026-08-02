@@ -5,7 +5,7 @@ use crate::config::{api_base, get_or_create_hwid, load_settings, persist_setting
 /// User-Agent лаунчера. Возвращается функцией (а не `const &str`), чтобы строка
 /// не лежала в бинарнике открытым текстом — шифруется `obf_str!` (см. `obf.rs`).
 pub fn launcher_user_agent() -> String {
-    crate::obf_str!("PolitEmpireLauncher/2.2.18 (win)")
+    crate::obf_str!("PolitEmpireLauncher/2.2.18 (linux)")
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -14,12 +14,15 @@ export async function GET(request: Request) {
   if (limited) return limited
 
   const db = getDb()
+  const osType = new URL(request.url).searchParams.get("os") || "win"
+  const extFilter = osType === "linux" ? "NOT LIKE '%.exe'" : "LIKE '%.exe'"
+  
   const [rows] = await db.query(
-    "SELECT file_name, file_size FROM launcher_versions WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
+    `SELECT file_name, file_size FROM launcher_versions WHERE is_active = 1 AND file_name ${extFilter} ORDER BY id DESC LIMIT 1`
   )
   const versions = rows as { file_name: string; file_size: number }[]
   if (versions.length === 0) {
-    return Response.json({ error: "Бинарник не найден" }, { status: 404 })
+    return Response.json({ error: `Бинарник для ОС ${osType} не найден` }, { status: 404 })
   }
 
   const fileName = path.basename(versions[0].file_name) // защита от traversal

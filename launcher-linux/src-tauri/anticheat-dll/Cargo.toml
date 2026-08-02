@@ -1,0 +1,46 @@
+[package]
+name = "pe-anticheat"
+version = "1.0.0"
+description = "Polit Empire in-process anticheat module (injected into the game)"
+edition = "2021"
+
+# Компилируется в нативную DLL, которую лаунчер инжектит в процесс игры.
+# ВАЖНО: это ОТДЕЛЬНЫЙ crate, не входящий в workspace лаунчера, поэтому
+# `cargo build` лаунчера его не трогает. Собирать под Windows:
+#   cd launcher/src-tauri/anticheat-dll
+#   cargo build --release --target x86_64-pc-windows-msvc
+# Результат: target/x86_64-pc-windows-msvc/release/pe_anticheat.dll
+[lib]
+name = "pe_anticheat"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Чистый Rust SHA-256 — считаем хэши модулей (baseline/отчёты). Без сетевых и
+# системных зависимостей, чтобы не раздувать и не усложнять DLL.
+sha2 = { version = "0.10", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  # CreateFileW принимает *const SECURITY_ATTRIBUTES → нужен Win32_Security.
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_Memory",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_SystemServices",
+  "Win32_System_ProcessStatus",
+  # WriteFile принимает *mut OVERLAPPED → нужен Win32_System_IO.
+  "Win32_System_IO",
+  "Win32_Storage_FileSystem",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+] }
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
+codegen-units = 1
+panic = "abort"
