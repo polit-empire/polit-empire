@@ -230,6 +230,7 @@ _MIGRATIONS = [
         mc_username VARCHAR(80) PRIMARY KEY,
         joined_at DATETIME NOT NULL,
         last_ticked_at DATETIME DEFAULT NULL,
+        plugin_last_seen DATETIME DEFAULT NULL,
         ip VARCHAR(45) DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
@@ -286,6 +287,7 @@ async def _migrate() -> None:
             # Автоматическая миграция новых колонок для ранее созданных таблиц
             column_migrations = [
                 "ALTER TABLE bot_play_sessions ADD COLUMN last_ticked_at DATETIME DEFAULT NULL",
+                "ALTER TABLE bot_play_sessions ADD COLUMN plugin_last_seen DATETIME DEFAULT NULL",
                 "ALTER TABLE bot_playtime ADD COLUMN session_count INT NOT NULL DEFAULT 0",
                 "ALTER TABLE bot_playtime ADD COLUMN longest_session_seconds INT NOT NULL DEFAULT 0",
                 "ALTER TABLE bot_playtime ADD COLUMN last_session_seconds INT NOT NULL DEFAULT 0",
