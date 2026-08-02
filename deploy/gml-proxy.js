@@ -221,6 +221,20 @@ function patchProfileArguments(args, realAccessToken) {
   return args.replace(accessTokenRegex, `$1${realAccessToken}`);
 }
 
+// GML в profiles/details (эндпоинт панели) НЕ подставляет данные игрока:
+// всегда отдаёт шаблон (--username GmlAdmin, случайный --uuid, нулевой
+// --accessToken). profiles/info (эндпоинт лаунчера) в текущей версии GML
+// отвечает 403. Поэтому лаунчер ходит на details (rewrite в nginx), а здесь
+// подставляем реального игрока в строку аргументов.
+function patchProfileArgs(args, user) {
+  if (!args) return args;
+  let out = args;
+  if (user.name) out = out.replace(/(--username\s+)\S+/, `$1${user.name}`);
+  if (user.uuid) out = out.replace(/(--uuid\s+)\S+/, `$1${user.uuid}`);
+  if (user.accessToken) out = out.replace(/(--accessToken\s+)\S+/, `$1${user.accessToken}`);
+  return out;
+}
+
 function getUserFromDb(userUuid) {
   try {
     const escapedUuid = userUuid.replace(/'/g, "''");
@@ -470,15 +484,20 @@ async function proxy(req, res, body) {
     }
     if (templateJson) {
       const patched = JSON.parse(JSON.stringify(templateJson));
-      if (patched.data && patched.data.accessToken === ACCESS_TOKEN_ZEROED) {
-        patched.data.accessToken = realAccessToken;
-      }
-      if (patched.data && typeof patched.data.profile?.arguments === "string") {
-        patched.data.profile.arguments = patchProfileArguments(patched.data.profile.arguments, realAccessToken);
+      if (patched.data && typeof patched.data.arguments === "string") {
+        const before = patched.data.arguments;
+        patched.data.arguments = patchProfileArgs(patched.data.arguments, {
+          name: userName,
+          uuid: userUuid,
+          accessToken: realAccessToken,
+        });
+        if (patched.data.arguments !== before) {
+          console.log(`[gml-proxy] profile/details: patched game args for ${userName} (${userUuid})`);
+        }
       }
       responseBody = Buffer.from(JSON.stringify(patched), "utf8");
       backendHeaders = { "content-type": "application/json" };
-      console.log(`[gml-proxy] profile/details: replaced zeroed token for ${userName}`);
+      console.log(`[gml-proxy] profile/details: profile sent to ${userName}`);
     }
   } else {
     const headers = { ...req.headers };
