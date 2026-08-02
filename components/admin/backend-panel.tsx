@@ -130,16 +130,21 @@ export function BackendPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [envFile])
 
-  const saveMaintenance = async () => {
+  const saveMaintenance = async (enabled: boolean) => {
     setMtSaved(null)
     try {
       const r = await fetch("/api/admin/maintenance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: mtEnabled, message: mtMessage }),
+        body: JSON.stringify({ enabled, message: mtMessage }),
       })
       const j = await r.json()
-      setMtSaved(j.ok ? "ok" : "err")
+      if (j.ok) {
+        setMtEnabled(enabled)
+        setMtSaved("ok")
+      } else {
+        setMtSaved("err")
+      }
     } catch {
       setMtSaved("err")
     }
@@ -231,7 +236,7 @@ export function BackendPanel() {
           </div>
           <button
             type="button"
-            onClick={saveMaintenance}
+            onClick={() => saveMaintenance(!mtEnabled)}
             className={`rounded-md px-4 py-2 text-sm font-medium text-white transition-colors ${
               mtEnabled ? "bg-amber-600 hover:bg-amber-500" : "bg-emerald-600 hover:bg-emerald-500"
             }`}
