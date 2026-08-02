@@ -47,6 +47,10 @@ export function BackendPanel() {
   const [logMsg, setLogMsg] = useState("")
 
   const envEntries = envs[envFile]
+  // Комментарии и пустые строки в списке не показываем, но при сохранении они остаются.
+  const shownEntries = envEntries
+    .map((e, i) => ({ e, i }))
+    .filter((x): x is { e: Extract<EnvLine, { kind: "kv" }>; i: number } => x.e.kind !== "raw")
 
   const loadMaintenance = useCallback(async () => {
     try {
@@ -296,58 +300,50 @@ export function BackendPanel() {
                 </tr>
               </thead>
               <tbody>
-                {envEntries.map((entry, i) =>
-                  entry.kind === "raw" ? (
-                    <tr key={i} className="border-b border-border/60">
-                      <td colSpan={3} className="px-3 py-1.5 font-mono text-xs text-muted-foreground/60">
-                        {entry.text || " "}
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={`${entry.key}-${i}`} className="border-b border-border/60">
-                      <td className="px-3 py-1.5">
+                {shownEntries.map(({ e: entry, i }) => (
+                  <tr key={`${entry.key}-${i}`} className="border-b border-border/60">
+                    <td className="px-3 py-1.5">
+                      <input
+                        value={entry.key}
+                        onChange={(e) => updateEntry(i, { key: e.target.value })}
+                        spellCheck={false}
+                        className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 font-mono text-xs font-medium text-foreground outline-none focus:border-primary"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1.5">
                         <input
-                          value={entry.key}
-                          onChange={(e) => updateEntry(i, { key: e.target.value })}
+                          type={showSecret[entry.key] ? "text" : "password"}
+                          value={entry.value}
+                          onChange={(e) => updateEntry(i, { value: e.target.value })}
+                          placeholder={isSecretKey(entry.key) ? "секрет" : ""}
                           spellCheck={false}
-                          className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 font-mono text-xs font-medium text-foreground outline-none focus:border-primary"
+                          className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 font-mono text-xs outline-none transition-colors focus:border-primary"
                         />
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type={showSecret[entry.key] ? "text" : "password"}
-                            value={entry.value}
-                            onChange={(e) => updateEntry(i, { value: e.target.value })}
-                            placeholder={isSecretKey(entry.key) ? "секрет" : ""}
-                            spellCheck={false}
-                            className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 font-mono text-xs outline-none transition-colors focus:border-primary"
-                          />
-                          {isSecretKey(entry.key) && (
-                            <button
-                              type="button"
-                              onClick={() => setShowSecret((s) => ({ ...s, [entry.key]: !s[entry.key] }))}
-                              className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
-                              title={showSecret[entry.key] ? "Скрыть" : "Показать"}
-                            >
-                              {showSecret[entry.key] ? "🙈" : "👁️"}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => removeEntry(i)}
-                          className="text-xs text-muted-foreground hover:text-red-400"
-                          title="Удалить строку"
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ),
-                )}
+                        {isSecretKey(entry.key) && (
+                          <button
+                            type="button"
+                            onClick={() => setShowSecret((s) => ({ ...s, [entry.key]: !s[entry.key] }))}
+                            className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                            title={showSecret[entry.key] ? "Скрыть" : "Показать"}
+                          >
+                            {showSecret[entry.key] ? "🙈" : "👁️"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removeEntry(i)}
+                        className="text-xs text-muted-foreground hover:text-red-400"
+                        title="Удалить строку"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
             <div className="flex items-center justify-between gap-2 border-t border-border p-2">
