@@ -879,7 +879,7 @@ mod imp {
         inter as f64 / garea as f64
     }
 
-    struct GameFind {
+    struct GameFind {                                                                                                                            
         self_pid: u32,
         rect: RECT,
         area: i64,
