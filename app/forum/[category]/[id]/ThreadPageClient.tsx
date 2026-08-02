@@ -196,7 +196,7 @@ export default function ThreadPageClient({
   const [editingReplyId, setEditingReplyId] = useState<number | null>(null)
   const [editBody, setEditBody] = useState("")
   const [muteNick, setMuteNick] = useState<string | null>(null)
-  const replyRef = useRef<HTMLTextAreaElement>(null)
+  const replyRef = useRef<HTMLDivElement>(null)
 
   const { thread, replies, isAdmin, currentUser } = data
 

@@ -192,6 +192,19 @@ function requestBackend(options, body) {
   });
 }
 
+function requestBackendStream(options, clientRes) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, (backendRes) => {
+      const outHeaders = cleanHeaders(backendRes.headers);
+      clientRes.writeHead(backendRes.statusCode, outHeaders);
+      backendRes.pipe(clientRes);
+      backendRes.on("end", () => resolve());
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 function extractJwtPayload(jwt) {
   try {
     const parts = jwt.split(".");
@@ -336,6 +349,36 @@ async function proxy(req, res, body) {
     return;
   }
 
+  // Файлы сборки — стримим напрямую из бэкена, не буферизуя в памяти.
+  // Сотни модов по 50-200MB каждый: буферизация всего ответа убивает память
+  // и ломает скачивание (error decoding response body из-за удалённого
+  // content-encoding). pipe() отдаёт данные клиенту мгновенно, потоково.
+  const isFileDownload = parsed.pathname.startsWith("/api/v1/file/");
+  if (isFileDownload && req.method === "GET") {
+    try {
+      const headers = { ...req.headers };
+      delete headers["host"];
+      await requestBackendStream(
+        {
+          host: GML_BACKEND.host,
+          port: GML_BACKEND.port,
+          path: req.url,
+          method: req.method,
+          headers,
+        },
+        res
+      );
+    } catch (e) {
+      console.log(`[gml-proxy] file stream error: ${e.message}`);
+      if (!res.headersSent) {
+        const errBody = Buffer.from(JSON.stringify({ status: "BadGateway", statusCode: 502, message: "Сервис авторизации недоступен" }), "utf8");
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "content-length": errBody.length });
+        res.end(errBody);
+      }
+    }
+    return;
+  }
+
   let authHeader = req.headers["authorization"] || "";
   let realAccessToken = null;
   let userName = null;
@@ -378,6 +421,11 @@ async function proxy(req, res, body) {
     } else {
       authHeader = `Bearer ${makeAdminJwt()}`;
     }
+    body = normalizeProfileBody(body);
+  } else if (isProfileDetails) {
+    // Auth header отсутствует (nginxstrip его или клиент не шлёт) —
+    // создаём свежий admin JWT, чтобы бэкенд не вернул 401/403.
+    authHeader = `Bearer ${makeAdminJwt()}`;
     body = normalizeProfileBody(body);
   }
 

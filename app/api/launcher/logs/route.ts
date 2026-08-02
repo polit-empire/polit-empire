@@ -20,6 +20,14 @@ const bodySchema = z.object({
 // Сколько последних строк лога хранить на игрока (скользящее окно).
 const KEEP_PER_NICK = 800
 
+// Раз во сколько вставок запускать обрезку окна. Прежде DELETE выполнялся на
+// каждом запросе, хотя удалять почти всегда нечего: при 800 хранимых строках и
+// пачках по 20-40 строк реальное превышение случается редко. Вставки идут
+// монотонно, поэтому лишние строки просто подождут следующей уборки — потолок
+// хранения превышается максимум на PRUNE_EVERY пачек.
+const PRUNE_EVERY = 20
+const insertsSincePrune = new Map<string, number>()
+
 /**
  * POST /api/launcher/logs
  *
@@ -56,20 +64,26 @@ export async function POST(request: Request) {
   )
 
   // Скользящее окно: удаляем всё, что старше KEEP_PER_NICK последних строк.
-  await db.query(
-    `DELETE FROM launcher_logs
-     WHERE minecraft_nick = ?
-       AND id <= (
-         SELECT min_id FROM (
-           SELECT MIN(id) AS min_id FROM (
-             SELECT id FROM launcher_logs
-             WHERE minecraft_nick = ?
-             ORDER BY id DESC LIMIT ?
-           ) AS keep
-         ) AS bound
-       ) - 1`,
-    [nick, nick, KEEP_PER_NICK],
-  )
+  const n = (insertsSincePrune.get(nick) ?? 0) + 1
+  if (n >= PRUNE_EVERY) {
+    insertsSincePrune.delete(nick)
+    await db.query(
+      `DELETE FROM launcher_logs
+       WHERE minecraft_nick = ?
+         AND id <= (
+           SELECT min_id FROM (
+             SELECT MIN(id) AS min_id FROM (
+               SELECT id FROM launcher_logs
+               WHERE minecraft_nick = ?
+               ORDER BY id DESC LIMIT ?
+             ) AS keep
+           ) AS bound
+         ) - 1`,
+      [nick, nick, KEEP_PER_NICK],
+    )
+  } else {
+    insertsSincePrune.set(nick, n)
+  }
 
   return Response.json({ ok: true, stored: parsed.data.lines.length })
 }

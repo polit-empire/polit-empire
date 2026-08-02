@@ -20,6 +20,7 @@ export interface MeResponse {
 const NAV = [
   { href: "/", label: "Главная" },
   { href: "/donate", label: "Донат" },
+  { href: "/wiki", label: "Википедия" },
   { href: "/account", label: "Кабинет" },
 ]
 

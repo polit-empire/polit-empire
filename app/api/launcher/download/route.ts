@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { Readable } from "stream"
 import { getDb } from "@/lib/db"
 import { getLauncherDir } from "@/lib/manifest"
 import { checkRateLimit } from "@/lib/rate-limit"
@@ -28,8 +29,8 @@ export async function GET(request: Request) {
   }
 
   const stat = fs.statSync(absolute)
-  const stream = fs.createReadStream(absolute)
-  return new Response(stream as unknown as ReadableStream, {
+  const stream = Readable.toWeb(fs.createReadStream(absolute)) as ReadableStream
+  return new Response(stream, {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Length": String(stat.size),

@@ -1,0 +1,15 @@
+name: PolitSkins
+version: '${version}'
+main: org.politempire.politskins.PolitSkinsPlugin
+api-version: '1.21'
+author: PolitEmpire
+description: Ставит скины из скин-сервиса PolitEmpire игрокам, которым их не выдал authlib-injector
+commands:
+  politskins:
+    description: Управление PolitSkins
+    usage: /politskins reload | /politskins refresh <ник> | /politskins clearcache | /politskins status
+    permission: politskins.admin
+permissions:
+  politskins.admin:
+    description: Управление PolitSkins
+    default: op

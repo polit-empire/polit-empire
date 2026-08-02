@@ -21,6 +21,14 @@ use crate::config::{api_base, load_settings};
 /// Флаг: стример логов уже запущен (одна игровая сессия — один поток).
 static LOG_STREAM_RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// Как часто стример логов опрашивает файл игры и шлёт накопленное.
+/// Каждый опрос — это POST /api/launcher/logs, поэтому интервал напрямую
+/// задаёт нагрузку: при 2с один играющий давал 30 запросов в минуту, и на
+/// полном сервере (50+ онлайн) это 1500 req/min на один эндпоинт. При 15с
+/// выходит 4 req/min с игрока; строки не теряются — просто едут крупнее
+/// пачками, в админке лайв-логи отстают максимум на этот интервал.
+const LOG_POLL_INTERVAL: Duration = Duration::from_secs(15);
+
 /// Строит blocking-клиент reqwest с коротким таймаутом.
 fn http_client() -> Option<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
@@ -204,7 +212,7 @@ pub fn start_log_stream(game_dir: std::path::PathBuf, session_id: String) {
             if !running {
                 break; // игра закрыта — хвост уже отправлен
             }
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(LOG_POLL_INTERVAL);
         }
 
         LOG_STREAM_RUNNING.store(false, Ordering::SeqCst);

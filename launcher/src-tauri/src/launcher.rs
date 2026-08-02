@@ -100,6 +100,7 @@ async fn fetch_gml_profile(
                 .header("User-Agent", launcher_user_agent())
                 .header("Authorization", token)
                 .json(&payload)
+                .timeout(std::time::Duration::from_secs(20))
                 .send()
                 .await;
 
@@ -320,6 +321,7 @@ pub async fn get_optional_mods() -> Result<Vec<OptionalMod>, String> {
             .header("User-Agent", launcher_user_agent())
             .header("Authorization", &token)
             .json(&payload)
+            .timeout(std::time::Duration::from_secs(20))
             .send()
             .await
         {
@@ -515,11 +517,29 @@ async fn download_file(
             let mut stream = res.bytes_stream();
             let mut last_tick = std::time::Instant::now();
 
-            while let Some(chunk) = stream.next().await {
+            loop {
+                // Таймаут на каждый чанк потока: если сервер перестал слать
+                // данные (обрыв DPI/ТСПУ/Cloudflare после установки соединения),
+                // раньше лаунчер висел здесь ВЕЧНО — «скачивание зависло на 300MB».
+                // Теперь через 30 секунд тишины считаем попытку проваленной и
+                // повторяем файл заново (ретраи ниже).
+                let chunk = match tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    stream.next(),
+                )
+                .await
+                {
+                    Ok(Some(chunk)) => chunk.map_err(|e| e.to_string())?,
+                    Ok(None) => break, // поток закончился штатно
+                    Err(_) => {
+                        return Err(format!(
+                            "сервер перестал передавать данные (таймаут 30с)"
+                        ))
+                    }
+                };
                 if CANCELLED.load(Ordering::SeqCst) {
                     return Err("Загрузка отменена".into());
                 }
-                let chunk = chunk.map_err(|e| e.to_string())?;
                 std::io::Write::write_all(&mut writer, &chunk).map_err(|e| e.to_string())?;
                 written += chunk.len() as u64;
                 bytes_done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
