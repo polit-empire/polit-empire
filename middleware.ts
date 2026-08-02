@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 /**
- * Страховочный слой авторизации для админ-зоны.
+ * Страховочный слой авторизации для админ-зоны + передача текущего пути
+ * в root-layout (для шлюза «технические работы»).
  *
  * Полноценная проверка прав администратора выполняется в каждом роуте через
  * getAdminUser() (сверка сессии с ADMIN_NICKS/telegram/bot_admins). Этот
@@ -16,23 +17,31 @@ import type { NextRequest } from "next/server"
 const SESSION_COOKIE = "pe_session"
 
 export function middleware(request: NextRequest) {
-  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value)
-  if (hasSession) return NextResponse.next()
-
   const { pathname } = request.nextUrl
 
-  // API админки без сессии — сразу 401 JSON (не редиректим API-запросы).
+  // Путь текущего запроса для root-layout: шлюз техработ решает, показывать
+  // страницу «Техработы» или обычный сайт.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set("x-pe-path", pathname)
+
+  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value)
+
+  // Админ-зона без сессии — сразу 401 JSON (API) или редирект на кабинет.
   if (pathname.startsWith("/api/admin")) {
+    if (hasSession) return NextResponse.next({ headers: requestHeaders })
     return NextResponse.json({ error: "Требуется вход администратора" }, { status: 401 })
   }
+  if (pathname.startsWith("/admin")) {
+    if (hasSession) return NextResponse.next({ headers: requestHeaders })
+    const url = request.nextUrl.clone()
+    url.pathname = "/account"
+    url.search = ""
+    return NextResponse.redirect(url)
+  }
 
-  // Страница /admin без сессии — на страницу входа в личный кабинет.
-  const url = request.nextUrl.clone()
-  url.pathname = "/account"
-  url.search = ""
-  return NextResponse.redirect(url)
+  return NextResponse.next({ headers: requestHeaders })
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  matcher: ["/:path*"],
 }

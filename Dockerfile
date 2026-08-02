@@ -16,6 +16,9 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -S app && adduser -S app -G app
+# Docker CLI + Compose для админ-панели «Бэкенд» (рестарт/пересборка/логи).
+# Доступ к docker.sock: подключается compose (user: "0:0") — см. docker-compose.
+RUN apk add --no-cache docker-cli docker-cli-compose bash
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Activity, Coins, LifeBuoy, LogIn, Megaphone, Package, ScrollText, Settings, Tag, Users } from "lucide-react"
+import { Activity, Coins, LifeBuoy, LogIn, Megaphone, Package, ScrollText, Server, Settings, Tag, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PlayersPanel } from "@/components/admin/players-panel"
 import { ProductsPanel } from "@/components/admin/products-panel"
@@ -13,6 +13,7 @@ import { AdminLogsPanel } from "@/components/admin/admin-logs-panel"
 import { AccountEventsPanel } from "@/components/admin/account-events-panel"
 import { TicketsPanel } from "@/components/admin/tickets-panel"
 import { PromoPanel } from "@/components/admin/promo-panel"
+import { BackendPanel } from "@/components/admin/backend-panel"
 
 type Tab =
   | "players"
@@ -25,6 +26,7 @@ type Tab =
   | "adminlogs"
   | "accounts"
   | "settings"
+  | "backend"
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "players", label: "Игроки", icon: Users },
@@ -37,6 +39,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: "adminlogs", label: "Логи админов", icon: ScrollText },
   { id: "accounts", label: "Логи входов", icon: LogIn },
   { id: "settings", label: "Настройки", icon: Settings },
+  { id: "backend", label: "Бэкенд", icon: Server },
 ]
 
 export function AdminClient({ adminNick }: { adminNick: string }) {
@@ -84,6 +87,7 @@ export function AdminClient({ adminNick }: { adminNick: string }) {
       {tab === "adminlogs" && <AdminLogsPanel />}
       {tab === "accounts" && <AccountEventsPanel />}
       {tab === "settings" && <SettingsPanel />}
+      {tab === "backend" && <BackendPanel />}
     </div>
   )
 }

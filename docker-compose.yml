@@ -2,6 +2,10 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Для админ-панели «Бэкенд» (рестарт/пересборка docker, логи) контейнер
+    # должен уметь выполнять команды docker compose: даём root + docker.sock +
+    # репозиторий (правка .env, чтение docker-compose.yml, scripts/backend-manage.sh).
+    user: "0:0"
     # network_mode: host — контейнер использует сетевой стек хоста напрямую.
     # Нужно потому, что до Telegram работает только IPv6, а внутри обычной
     # docker-сети IPv6 недоступен (ENETUNREACH). В host-режиме приложение
@@ -29,6 +33,10 @@ services:
       # обоих контейнеров). Без общего каталога скин, загруженный в лаунчере/ЛК,
       # не доходил до игры — authlib отдавал default.png, и в игре был Alex.
       - ./data/skins:/data/politempire/skins
+      # Бэкенд-управление из админки: docker.sock + репозиторий (compose-файл,
+      # .env для правки, scripts/backend-manage.sh).
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/polit-empire:/opt/polit-empire
 
   # Telegram + Discord бот (politempire_bots): регистрация, 2FA, рефералка,
   # HTTP API для Minecraft-плагина (порт 8180). Работает через long polling
@@ -70,7 +78,7 @@ services:
     # обмена данными с сервисом авторизации». Принудительно резолвим
     # politempire.org в прямой IP сервера (минуя Cloudflare).
     extra_hosts:
-      - "politempire.org:85.192.56.40"
+      - "politempire.org:144.31.0.116"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8082;

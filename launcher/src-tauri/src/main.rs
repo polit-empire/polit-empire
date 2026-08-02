@@ -8,6 +8,7 @@ mod discord_rpc;
 mod inject;
 mod integrity;
 mod launcher;
+mod maintenance;
 mod news;
 mod obf;
 mod security;

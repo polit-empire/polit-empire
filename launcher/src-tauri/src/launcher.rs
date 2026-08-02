@@ -783,7 +783,13 @@ async fn sync_and_launch_inner() -> Result<(), String> {
     let game_dir = PathBuf::from(&settings.game_dir);
     fs::create_dir_all(&game_dir).map_err(|e| e.to_string())?;
 
-    // Пул keep-alive соединений — бе�� него каждый файл открывает новое
+    // Техработы: если администратор включил режим, запуск игры разрешён только
+    // админам (флаг admin_allowed считает сервер по токену сессии). Остальные
+    // получают сообщение вместо загрузки. Сетевые сбои — fail-open.
+    set_progress(SyncProgress { stage: "checking".into(), ..Default::default() });
+    crate::maintenance::maintenance_guard(&token).await?;
+
+    // Пул keep-alive соединений — без него каждый файл открывает новое
     // TCP+TLS соединение, что и делало загрузку медленной.
     let client = reqwest::Client::builder()
         // Таймаут на установку соединения: зависший коннект не блокирует

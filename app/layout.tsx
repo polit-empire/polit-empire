@@ -1,7 +1,12 @@
 import { Analytics } from '@vercel/analytics/next'
+import { headers } from 'next/headers'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { SeasonalTheme } from '@/components/seasonal-theme'
+import { MaintenanceScreen } from '@/components/maintenance-screen'
+import { getMaintenanceState } from '@/lib/maintenance'
+import { getSessionUser } from '@/lib/session'
+import { isAdminUser } from '@/lib/admin'
 import './globals.css'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -126,11 +131,21 @@ const jsonLd = {
   ],
 }
 
-export default function RootLayout({
+export const dynamic = "force-dynamic"
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+// Шлюз технических работ: при включённых техработах посетителям показывается
+  // заглушка, а админам («заходить могут только админы» — ADMIN_NICKS /
+  // ADMIN_TELEGRAM_IDS / bot_admins) сайт доступен. Исключения — страница входа
+  // (/account), чтобы администратор мог войти и выключить режим, и страница
+  // загрузки лаунчера (/download).
+  const maintenance = await getMaintenanceState()
+  const maintenanceGated = maintenance.enabled && (await isMaintenanceBlocked())
+
   return (
     <html lang="ru" className={`${geistSans.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased">
@@ -142,9 +157,23 @@ export default function RootLayout({
         {/* Праздничное оформление: сезонная палитра + падающие частицы
             (Новый год, Хэллоуин, Пасха, 14 февраля — см. lib/season.ts). */}
         <SeasonalTheme />
-        {children}
+        {maintenanceGated ? <MaintenanceScreen message={maintenance.message} /> : children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
+}
+
+async function isMaintenanceBlocked(): Promise<boolean> {
+  try {
+    const pathname = (await headers()).get('x-pe-path') ?? ''
+    if (pathname === '/account' || pathname.startsWith('/account/') || pathname === '/download' || pathname.startsWith('/download/')) {
+      return false
+    }
+    const user = await getSessionUser()
+    if (user && (await isAdminUser(user))) return false
+    return true
+  } catch {
+    return true
+  }
 }
