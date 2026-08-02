@@ -10,8 +10,14 @@ export async function GET(request: Request) {
   if (limited) return limited
 
   const db = getDb()
+  const osType = new URL(request.url).searchParams.get("os")
+  const ua = request.headers.get("user-agent") || ""
+  const isLinux = osType === "linux" || ua.includes("(linux)")
+  
+  const extFilter = isLinux ? "NOT LIKE '%.exe'" : "LIKE '%.exe'"
+
   const [rows] = await db.query(
-    "SELECT version, changelog FROM launcher_versions WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
+    `SELECT version, changelog FROM launcher_versions WHERE is_active = 1 AND file_name ${extFilter} ORDER BY id DESC LIMIT 1`
   )
   const versions = rows as { version: string; changelog: string | null }[]
 
