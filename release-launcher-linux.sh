@@ -64,23 +64,36 @@ else
 fi
 
 APPIMAGE_DIR="launcher-linux/src-tauri/target/release/bundle/appimage"
-EXE="$APPIMAGE_DIR/polit-empire-launcher_${VERSION}_amd64.AppImage"
+DEB_DIR="launcher-linux/src-tauri/target/release/bundle/deb"
+RPM_DIR="launcher-linux/src-tauri/target/release/bundle/rpm"
 
-if [[ ! -f "$EXE" ]]; then
-  echo "Ожидаемый файл не найден, беру самый свежий *.AppImage из папки..."
-  EXE=$(ls -t "$APPIMAGE_DIR"/*.AppImage 2>/dev/null | head -n 1 || true)
-fi
+EXE_APPIMAGE="$APPIMAGE_DIR/polit-empire-launcher_${VERSION}_amd64.AppImage"
+EXE_DEB="$DEB_DIR/polit-empire-launcher_${VERSION}_amd64.deb"
+EXE_RPM="$RPM_DIR/polit-empire-launcher-${VERSION}-1.x86_64.rpm"
 
-if [[ -z "$EXE" || ! -f "$EXE" ]]; then
-  echo "[ОШИБКА] Не найден установщик в $APPIMAGE_DIR"
-  exit 1
-fi
-echo "Установщик: $EXE"
+if [[ ! -f "$EXE_APPIMAGE" ]]; then EXE_APPIMAGE=$(ls -t "$APPIMAGE_DIR"/*.AppImage 2>/dev/null | head -n 1 || true); fi
+if [[ ! -f "$EXE_DEB" ]]; then EXE_DEB=$(ls -t "$DEB_DIR"/*.deb 2>/dev/null | head -n 1 || true); fi
+if [[ ! -f "$EXE_RPM" ]]; then EXE_RPM=$(ls -t "$RPM_DIR"/*.rpm 2>/dev/null | head -n 1 || true); fi
 
 echo ""
 echo "=== [3/3] Загрузка на сервер ==="
-if ! node scripts/upload-launcher.mjs "$EXE" "$VERSION" "$CHANGELOG"; then
-  echo "[ОШИБКА] Не удалось загрузить на сервер."
+
+UPLOADED=0
+for FILE in "$EXE_APPIMAGE" "$EXE_DEB" "$EXE_RPM"; do
+  if [[ -n "$FILE" && -f "$FILE" ]]; then
+    echo "Установщик найден: $FILE"
+    if ! node scripts/upload-launcher.mjs "$FILE" "$VERSION" "$CHANGELOG"; then
+      echo "[ОШИБКА] Не удалось загрузить на сервер: $FILE"
+      exit 1
+    fi
+    UPLOADED=1
+  else
+    echo "[ВНИМАНИЕ] Файл не найден (пропуск)"
+  fi
+done
+
+if [[ $UPLOADED -eq 0 ]]; then
+  echo "[ОШИБКА] Не найдено ни одного собранного установщика."
   exit 1
 fi
 
