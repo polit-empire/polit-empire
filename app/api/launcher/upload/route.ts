@@ -53,32 +53,45 @@ export async function POST(request: Request) {
     return Response.json({ error: "Версия должна быть в формате X.Y.Z, например 1.0.1" }, { status: 400 })
   }
 
+  let ext = ".exe"
+  if (file.name) {
+    if (file.name.endsWith(".AppImage")) ext = ".AppImage"
+    else if (file.name.endsWith(".deb")) ext = ".deb"
+    else if (file.name.endsWith(".rpm")) ext = ".rpm"
+    else if (file.name.endsWith(".exe")) ext = ".exe"
+    else ext = path.extname(file.name) || ".exe"
+  }
+
   const db = getDb()
-  const [rows] = await db.query("SELECT id FROM launcher_versions WHERE version = ?", [version])
+  const [rows] = await db.query("SELECT id FROM launcher_versions WHERE version = ? AND file_name LIKE ?", [version, `%${ext}`])
   if ((rows as unknown[]).length > 0) {
-    return Response.json({ error: `Версия ${version} уже опубликована` }, { status: 409 })
+    return Response.json({ error: `Версия ${version} (${ext}) уже опубликована` }, { status: 409 })
   }
 
   // Сохраняем бинарник в STORAGE_DIR/launcher/
-  const fileName = `PolitEmpireLauncher-Setup-${version}.exe`
+  const fileName = `PolitEmpireLauncher-Setup-${version}${ext}`
   const dir = getLauncherDir()
   fs.mkdirSync(dir, { recursive: true })
   const buffer = Buffer.from(await file.arrayBuffer())
   fs.writeFileSync(path.join(dir, fileName), buffer)
 
-  // Активируем новую версию, деактивируем старые
-  await db.query("UPDATE launcher_versions SET is_active = 0")
+  // Активируем новую версию, деактивируем старые только ДЛЯ ЭТОГО ЖЕ расширения (чтобы .deb не сносил .exe)
+  await db.query("UPDATE launcher_versions SET is_active = 0 WHERE file_name LIKE ?", [`%${ext}`])
   await db.query(
     "INSERT INTO launcher_versions (version, changelog, file_name, file_size, is_active) VALUES (?, ?, ?, ?, 1)",
     [version, changelog || null, fileName, buffer.length],
   )
 
-  // Анонс в дев-блог Discord с пингом @here. Сбой уведомления не должен
-  // ронять публикацию — просто логируем и возвращаем статус клиенту.
-  const announce = await announceLauncherRelease(version, changelog)
-  if (!announce.ok) {
-    console.error("[v0] launcher release announce failed:", announce.error)
+  // Анонс в дев-блог Discord с пингом @here.
+  // Делаем анонс ТОЛЬКО для .exe, чтобы при публикации 4-х файлов Linux не спамить в чат 4 раза.
+  let announced = false
+  if (ext === ".exe") {
+    const announce = await announceLauncherRelease(version, changelog)
+    if (!announce.ok) {
+      console.error("[v0] launcher release announce failed:", announce.error)
+    }
+    announced = announce.ok
   }
 
-  return Response.json({ ok: true, version, fileName, fileSize: buffer.length, announced: announce.ok })
+  return Response.json({ ok: true, version, fileName, fileSize: buffer.length, announced })
 }
