@@ -1,5 +1,8 @@
 import { execFile } from "child_process"
 import { promises as fsp } from "fs"
+import { parseEnv, type EnvLine } from "@/lib/env-util"
+
+export type { EnvLine } from "@/lib/env-util"
 
 export const REPO_DIR = "/opt/polit-empire"
 export const COMPOSE_FILE = `${REPO_DIR}/docker-compose.yml`
@@ -47,14 +50,23 @@ export async function runManager(args: string[]): Promise<ManagerResult> {
  * Читает и пишет .env-файл. Возвращает содержимое/ошибку; при отсутствии
  * файла — понятную причину, чтобы админка могла показать её в интерфейсе.
  */
-export async function readEnvFile(file: "site" | "bot"): Promise<{ content: string; file: string }> {
+export async function readEnvFile(file: "site" | "bot"): Promise<{ content: string; entries: EnvLine[] }> {
   const p = file === "site" ? SITE_ENV_PATH : BOT_ENV_PATH
   const content = await fsp.readFile(p, "utf8")
-  return { content, file: p }
+  return { content, entries: parseEnv(content) }
 }
 
 export async function writeEnvFile(file: "site" | "bot", content: string): Promise<void> {
   const p = file === "site" ? SITE_ENV_PATH : BOT_ENV_PATH
   if (content.length > 512 * 1024) throw new Error("Файл слишком большой")
   await fsp.writeFile(p, content + (content.endsWith("\n") ? "" : "\n"), "utf8")
+}
+
+/** Собирает .env обратно из списка строк. value не должен содержать перевод строки. */
+export function serializeEnv(entries: EnvLine[]): string {
+  return (
+    entries
+      .map((e) => (e.kind === "kv" ? `${e.key}=${e.value}` : e.text))
+      .join("\n") + "\n"
+  )
 }

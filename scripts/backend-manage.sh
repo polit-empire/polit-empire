@@ -18,7 +18,12 @@ COMPOSE=(docker compose -f "$COMPOSE_DIR/docker-compose.yml" --project-directory
 
 case "${1:-}" in
   status)
-    "${COMPOSE[@]}" ps
+    if [ "${2:-}" = "json" ]; then
+      # JSON-режим для админ-панели: docker compose ps --format json
+      "${COMPOSE[@]}" ps --format json
+    else
+      "${COMPOSE[@]}" ps
+    fi
     ;;
   logs)
     svc="${2:-app}"
@@ -38,7 +43,7 @@ case "${1:-}" in
     "${COMPOSE[@]}" up -d "$2"
     ;;
   *)
-    echo "usage: $0 {status|logs <svc> [lines]|restart <svc>|rebuild <svc>|start <svc>}" >&2
+    echo "usage: $0 {status [json]|logs <svc> [lines]|restart <svc>|rebuild <svc>|start <svc>}" >&2
     exit 2
     ;;
 esac
