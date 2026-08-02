@@ -18,7 +18,8 @@ type ContainerStatus = {
 }
 
 export function BackendPanel() {
-  const [mtEnabled, setMtEnabled] = useState(false)
+  const [mtSite, setMtSite] = useState(false)
+  const [mtLauncher, setMtLauncher] = useState(false)
   const [mtMessage, setMtMessage] = useState("")
   const [mtSaved, setMtSaved] = useState<null | "ok" | "err">(null)
 
@@ -56,7 +57,8 @@ export function BackendPanel() {
     try {
       const r = await fetch("/api/admin/maintenance", { cache: "no-store" })
       const j = await r.json()
-      setMtEnabled(!!j.enabled)
+      setMtSite(!!j.enabled)
+      setMtLauncher(!!j.launcher)
       setMtMessage(j.message ?? "")
     } catch {
       setMtMessage("(не удалось прочитать состояние)")
@@ -130,17 +132,18 @@ export function BackendPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [envFile])
 
-  const saveMaintenance = async (enabled: boolean) => {
+  const saveMaintenance = async () => {
     setMtSaved(null)
     try {
       const r = await fetch("/api/admin/maintenance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, message: mtMessage }),
+        body: JSON.stringify({ enabled: mtSite, launcher: mtLauncher, message: mtMessage }),
       })
       const j = await r.json()
       if (j.ok) {
-        setMtEnabled(enabled)
+        setMtSite(!!j.enabled)
+        setMtLauncher(!!j.launcher)
         setMtSaved("ok")
       } else {
         setMtSaved("err")
@@ -218,13 +221,13 @@ export function BackendPanel() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold">Технические работы</h3>
           <span className="flex items-center gap-2">
-            <span className={`inline-block size-2.5 rounded-full ${mtEnabled ? "bg-amber-500" : "bg-emerald-500"}`} />
-            <span className={`text-sm font-medium ${mtEnabled ? "text-amber-500" : "text-emerald-500"}`}>
-              {mtEnabled ? "Включено" : "Выключено"}
+            {(mtSite || mtLauncher) && <span className="inline-block size-2.5 rounded-full bg-amber-500" />}
+            <span className={`text-sm font-medium ${mtSite || mtLauncher ? "text-amber-500" : "text-emerald-500"}`}>
+              Включено: {[mtSite && "сайт", mtLauncher && "лаунчер"].filter(Boolean).join(" + ") || "нигде"}
             </span>
           </span>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-56 flex-1">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Сообщение для игроков</label>
             <TextArea
@@ -234,14 +237,32 @@ export function BackendPanel() {
               className="min-h-14"
             />
           </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={mtSite}
+                onChange={(e) => setMtSite(e.target.checked)}
+                className="size-4 accent-amber-500"
+              />
+              Сайт
+            </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={mtLauncher}
+                onChange={(e) => setMtLauncher(e.target.checked)}
+                className="size-4 accent-amber-500"
+              />
+              Лаунчер
+            </label>
+          </div>
           <button
             type="button"
-            onClick={() => saveMaintenance(!mtEnabled)}
-            className={`rounded-md px-4 py-2 text-sm font-medium text-white transition-colors ${
-              mtEnabled ? "bg-amber-600 hover:bg-amber-500" : "bg-emerald-600 hover:bg-emerald-500"
-            }`}
+            onClick={saveMaintenance}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            {mtEnabled ? "Выключить" : "Включить"}
+            Сохранить
           </button>
         </div>
         {mtSaved === "ok" && <p className="mt-2 text-sm text-emerald-600">Сохранено</p>}

@@ -11,6 +11,14 @@ import type { SyncProgress, VerifyResponse } from "./types"
 
 type Tab = "home" | "mods" | "profile" | "settings"
 
+interface MaintenanceStatus {
+  enabled: boolean
+  site: boolean
+  launcher: boolean
+  message: string
+  admin_allowed: boolean
+}
+
 interface Props {
   nickname: string
   onLogout: () => void
@@ -90,6 +98,7 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
   const [gameRunning, setGameRunning] = useState(false)
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [error, setError] = useState("")
+  const [maintenance, setMaintenance] = useState<MaintenanceStatus | null>(null)
   const pollRef = useRef<number | null>(null)
   const gamePollRef = useRef<number | null>(null)
   // Активный праздник (если есть): эмодзи у логотипа + приветствие внизу.
@@ -110,6 +119,25 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
   }
 
   useEffect(() => stopGamePolling, [])
+
+  // Статус техработ: периодически опрашиваем сайт и показываем баннер.
+  useEffect(() => {
+    let cancelled = false
+    const fetchStatus = async () => {
+      try {
+        const s = await invoke<MaintenanceStatus>("get_maintenance_status")
+        if (!cancelled) setMaintenance(s)
+      } catch {
+        // fail-open: не показываем баннер, если сайт недоступен
+      }
+    }
+    fetchStatus()
+    const t = window.setInterval(fetchStatus, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(t)
+    }
+  }, [])
 
   // Пока игра запущена: лаунчер скрыт в трее, следим за процессом игры.
   // Когда игра закрывается — возвращаем окно лаунчера.
@@ -277,6 +305,25 @@ export default function Shell({ nickname, onLogout, onSessionExpired }: Props) {
 
         {/* Content */}
         <main className="min-h-0 flex-1 overflow-y-auto">
+          {maintenance && (maintenance.enabled || maintenance.site || maintenance.launcher) && (
+            <div className="mx-5 mt-5 flex items-start justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3.5">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm font-semibold text-amber-500">Технические работы</p>
+                {maintenance.message && <p className="text-xs text-muted">{maintenance.message}</p>}
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {[
+                    maintenance.site && "сайт",
+                    maintenance.launcher && "лаунчер",
+                  ]
+                    .filter(Boolean)
+                    .join(" + ")}
+                </p>
+              </div>
+              {maintenance.admin_allowed && (
+                <span className="shrink-0 text-[11px] font-medium text-emerald-500">Вы администратор — доступ разрешён</span>
+              )}
+            </div>
+          )}
           {tab === "home" && <HomeTab nickname={nickname} />}
           {tab === "mods" && <ModsTab />}
           {tab === "profile" && <ProfileTab nickname={nickname} />}

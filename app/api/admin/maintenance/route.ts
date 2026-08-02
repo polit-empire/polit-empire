@@ -18,20 +18,26 @@ export async function PUT(req: Request) {
   const admin = await getAdminUser()
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 })
 
-  const b = (await req.json().catch(() => null)) as { enabled?: boolean; message?: string } | null
-  if (b == null || typeof b.enabled !== "boolean") {
+  const b = (await req.json().catch(() => null)) as
+    | { enabled?: boolean; launcher?: boolean; message?: string }
+    | null
+  if (b == null || (typeof b.enabled !== "boolean" && typeof b.launcher !== "boolean")) {
     return NextResponse.json({ error: "bad request" }, { status: 400 })
   }
-  const message = typeof b.message === "string" ? b.message.slice(0, 1000) : ""
-
-  await setMaintenanceState(b.enabled, message)
+  const prev = await getMaintenanceState()
+  const next: typeof prev = {
+    enabled: typeof b.enabled === "boolean" ? b.enabled : prev.enabled,
+    launcher: typeof b.launcher === "boolean" ? b.launcher : prev.launcher,
+    message: typeof b.message === "string" ? b.message.slice(0, 1000) : prev.message,
+  }
+  await setMaintenanceState(next)
   await logAdminAction({
     adminNick: admin.minecraft_nick,
-    action: b.enabled ? "maintenance.on" : "maintenance.off",
+    action: "maintenance.set",
     targetNick: null,
-    detail: b.enabled ? `Техработы включены: ${message}` : "Техработы выключены",
+    detail: `Техработы: сайт=${next.enabled ? "вкл" : "выкл"}, лаунчер=${next.launcher ? "вкл" : "выкл"}, сообщение: ${next.message}`,
     ip: clientIp(req),
   }).catch(() => {})
 
-  return NextResponse.json({ ok: true, enabled: b.enabled, message })
+  return NextResponse.json({ ok: true, ...next })
 }

@@ -106,6 +106,7 @@ fn main() {
             launcher::kill_game,
             launcher::is_game_running,
             news::get_news,
+            maintenance::get_maintenance_status,
             update::check_launcher_update,
             update::apply_launcher_update,
             update::get_update_progress,

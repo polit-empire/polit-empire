@@ -1,25 +1,50 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::auth::launcher_user_agent;
 use crate::config::api_base;
 
-/// Статус техработ с сайта. Во время техработ игра запускается только
-/// администраторами (флаг `admin_allowed` вычисляет сервер по токену сессии).
-#[derive(Debug, Deserialize)]
-struct MaintenanceStatus {
+/// Статус техработ с сайта.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceStatus {
+    /// Техработы где-либо включены (сайт и/или лаунчер).
     #[serde(default)]
-    enabled: bool,
+    pub enabled: bool,
+    /// Техработы на сайте (заглушка посетителям).
     #[serde(default)]
-    message: String,
+    pub site: bool,
+    /// Техработы в лаунчере (запуск игры только администраторам).
     #[serde(default)]
-    admin_allowed: bool,
+    pub launcher: bool,
+    #[serde(default)]
+    pub message: String,
+    /// Текущий игрок — администратор, ему разрешён запуск во время техработ.
+    #[serde(default)]
+    pub admin_allowed: bool,
+}
+
+/// Текущий статус техработ для отображения в интерфейсе лаунчера.
+#[tauri::command]
+pub async fn get_maintenance_status() -> Result<MaintenanceStatus, String> {
+    let client = reqwest::Client::new();
+    let res = client
+        .get(format!("{}/api/maintenance", api_base()))
+        .header("User-Agent", launcher_user_agent())
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Не удалось проверить статус техработ: {e}"))?;
+    let status: MaintenanceStatus = res
+        .json()
+        .await
+        .map_err(|e| format!("Некорректный ответ сервера: {e}"))?;
+    Ok(status)
 }
 
 /// Проверка техработ перед запуском игры.
 ///
 /// fail-open: если сайт недоступен или ответ испорчен — не блокируем вход,
 /// чтобы перебои сети не мешали играть. Блокируем только когда сервер явно
-/// сообщил «техработы включены» и текущий игрок не администратор.
+/// сообщил «техработы в лаунчере включены» и текущий игрок не администратор.
 pub async fn maintenance_guard(session_token: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
     let res = match client
@@ -42,7 +67,7 @@ pub async fn maintenance_guard(session_token: &str) -> Result<(), String> {
         Err(_) => return Ok(()),
     };
 
-    if info.enabled && !info.admin_allowed {
+    if info.launcher && !info.admin_allowed {
         let text = info.message.trim();
         let message = if text.is_empty() {
             "Сервер на техработах. Попробуйте позже.".to_string()
