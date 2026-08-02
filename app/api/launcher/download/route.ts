@@ -44,12 +44,52 @@ export async function GET(request: Request) {
   }
 
   const stat = fs.statSync(absolute)
-  const stream = Readable.toWeb(fs.createReadStream(absolute)) as ReadableStream
+
+  // Докачка (Range): у части игроков (Cloudflare WARP, ТСПУ/DPI) соединение
+  // рвётся в середине файла. Лаунчер переспрашивает файл с Range — отдаём
+  // 206 Partial Content с точным смещением, иначе каждый ретрай качал бы
+  // установщик с нуля.
+  const rangeHeader = request.headers.get("range")
+  const range = rangeHeader ? parseRange(rangeHeader, stat.size) : null
+  if (rangeHeader && !range) {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${stat.size}`, "Accept-Ranges": "bytes" } })
+  }
+  const start = range?.start ?? 0
+  const end = range?.end ?? stat.size - 1
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": String(end - start + 1),
+    "Accept-Ranges": "bytes",
+    "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
+  }
+  if (range) {
+    headers["Content-Range"] = `bytes ${start}-${end}/${stat.size}`
+  }
+  const stream = Readable.toWeb(fs.createReadStream(absolute, { start, end })) as ReadableStream
   return new Response(stream, {
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": String(stat.size),
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
-    },
+    status: range ? 206 : 200,
+    headers,
   })
+}
+
+function parseRange(
+  header: string,
+  size: number
+): { start: number; end: number } | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!m) return null
+  if (m[1] === "") {
+    // Суффикс: последние N байт.
+    if (m[2] === "") return null
+    const suffix = Number(m[2])
+    if (!Number.isInteger(suffix) || suffix <= 0) return null
+    return { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  let start = Number(m[1])
+  if (!Number.isInteger(start) || start < 0) return null
+  if (start >= size) return null
+  let end = m[2] === "" ? size - 1 : Number(m[2])
+  if (!Number.isInteger(end)) return null
+  if (start > end) return null
+  return { start, end: Math.min(end, size - 1) }
 }

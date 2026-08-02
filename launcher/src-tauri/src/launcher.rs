@@ -435,84 +435,174 @@ async fn download_file(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // До пяти попыток на файл: качаем во временный файл, сверяем SHA-1 с
-    // манифестом и только после совпадения ставим на место. Битое скачивание
-    // (обрыв соединения, HTML-заглушка анти-DDoS вместо файла) больше не
-    // остаётся на диске и не валит финальную сверку целостности.
-    const FILE_ATTEMPTS: u32 = 5;
+    // До 12 попыток на файл: качаем во временный файл, сверяем SHA-1 с
+    // манифестом и только после совпадения ставим на место. Временный файл
+    // живёт МЕЖДУ попытками: при обрыве соединения (у части игроков с
+    // Cloudflare WARP/нестабильным каналом соединение рвётся в середине файла
+    // — "error decoding response body") следующий запрос идёт с Range и
+    // ДОКАЧИВАЕТ файл с места остановки, а не качает с нуля. Раньше tmp
+    // удалялся после каждой неудачи, и при обрывах каждые ~5-15 МБ большие
+    // моды (19-80 МБ) не докачивались за все попытки.
+    //
+    // URL файла: сначала {host}/files/<путь> — этот эндпоинт отдаётся
+    // статикой nginx с нативной поддержкой Range (206). Фолбэк на
+    // {host}/api/v1/file/<hash> (Kestrel Range игнорирует — тогда качаем
+    // с нуля, как раньше).
+    const FILE_ATTEMPTS: u32 = 24;
     let hosts = crate::config::gml_host_candidates();
     let mut last_err = format!("Не удалось скачать файл {}", entry.path);
+    let path_encoded = encode_url_path(&entry.path);
+
+    let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".pe-tmp");
+    let tmp = target.with_file_name(tmp_name);
+    // Сколько байт уже лежит в tmp — с этого места будем докачивать.
+    let mut resumed: u64 = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
 
     for attempt in 1..=FILE_ATTEMPTS {
         if CANCELLED.load(Ordering::SeqCst) {
             return Err("Загрузка отменена".into());
         }
 
-        // Запрос: перебираем хосты-кандидаты (сначала подтверждённый профилем).
+        // Запрос: перебираем хосты-кандидаты (сначала подтверждённый профилем),
+        // на каждом хосте — сначала путь (nginx static), потом хэш (Kestrel).
         let mut res_opt = None;
-        for host in &hosts {
-            match client
-                .get(format!("{host}/api/v1/file/{}", entry.hash))
-                .header("User-Agent", launcher_user_agent())
-                .header("Authorization", token)
-                .send()
-                .await
-            {
-                Ok(r) => {
-                    let status = r.status();
-                    let final_url = r.url().to_string();
-                    // Анти-DDoS хостинга перехватывает запрос и уводит на
-                    // страницу-заглушку /wait (после редиректа — 404/405 или
-                    // HTML вместо файла). Это не проблема самого файла:
-                    // пробуем другой хост, потом ждём и повторяем.
-                    let is_wait_stub = final_url.contains("/wait")
-                        || r.headers()
-                            .get("content-type")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.contains("text/html"))
-                            .unwrap_or(false);
-                    if status.is_success() && !is_wait_stub {
-                        crate::config::set_resolved_gml_host(host);
-                        res_opt = Some(r);
-                        break;
-                    }
-                    if is_wait_stub {
-                        last_err = format!(
-                            "Файл {}: защита хостинга отдала заглушку /wait (HTTP {})",
-                            entry.path,
-                            status.as_u16()
-                        );
-                        // Заглушка — особенность конкретного хоста: пробуем
-                        // следующий (резервный), потом повторяем с паузой.
-                        continue;
-                    }
-                    last_err = format!("Файл {} недоступен: HTTP {}", entry.path, status.as_u16());
-                    // Настоящая HTTP-ошибка одинакова на всех хостах — дальше не перебираем.
-                    break;
+        'fetch: for host in &hosts {
+            for url in [
+                format!("{host}/files/{path_encoded}?h={}", entry.hash),
+                format!("{host}/api/v1/file/{}", entry.hash),
+            ] {
+                let mut req = client
+                    .get(&url)
+                    .header("User-Agent", launcher_user_agent())
+                    .header("Authorization", token)
+                    // Бинарники должны приходить БЕЗ сжатия: любой прозрачный
+                    // gzip (брандмауэр/DPI/хостинг-зеркало) ломает докачку Range —
+                    // смещения в сжатом потоке не совпадают с байтами tmp, хэш
+                    // не сходится и каждая попытка начинается с нуля.
+                    .header(reqwest::header::ACCEPT_ENCODING, "identity");
+                if resumed > 0 {
+                    req = req.header(reqwest::header::RANGE, format!("bytes={resumed}-"));
                 }
-                Err(e) => {
-                    // Соединение не удалось — пробуем следующий хост.
-                    last_err = format!("Ошибка сети при скачивании {}: {e}", entry.path);
+                match req.send().await {
+                    Ok(r) => {
+                        let status = r.status();
+                        let final_url = r.url().to_string();
+                        // Анти-DDoS хостинга перехватывает запрос и уводит на
+                        // страницу-заглушку /wait (после редиректа — 404/405 или
+                        // HTML вместо файла). Это не проблема самого файла:
+                        // пробуем другой хост, потом ждём и повторяем.
+                        let is_wait_stub = final_url.contains("/wait")
+                            || r.headers()
+                                .get("content-type")
+                                .and_then(|v| v.to_str().ok())
+                                .map(|v| v.contains("text/html"))
+                                .unwrap_or(false);
+                        if status.is_success() && !is_wait_stub {
+                            crate::config::set_resolved_gml_host(host);
+                            res_opt = Some(r);
+                            break 'fetch;
+                        }
+                        if is_wait_stub {
+                            last_err = format!(
+                                "Файл {}: защита хостинга отдала заглушку /wait (HTTP {})",
+                                entry.path,
+                                status.as_u16()
+                            );
+                            // Заглушка — особенность конкретного хоста: пробуем
+                            // следующий (резервный), потом повторяем с паузой.
+                            continue;
+                        }
+                        last_err = format!("Файл {} недоступен: HTTP {}", entry.path, status.as_u16());
+                    }
+                    Err(e) => {
+                        // Соединение не удалось — пробуем следующий хост.
+                        last_err = format!("Ошибка сети при скачивании {}: {}", entry.path, err_chain(&e));
+                    }
                 }
             }
         }
         let Some(res) = res_opt else {
             if attempt < FILE_ATTEMPTS {
                 // Пауза растёт с каждой попыткой — пережидаем анти-DDoS.
-                tokio::time::sleep(std::time::Duration::from_secs((attempt * 2) as u64)).await;
+                tokio::time::sleep(std::time::Duration::from_secs((attempt.min(6) * 2) as u64)).await;
                 continue;
             }
             return Err(last_err);
         };
 
-        // Качаем во временный файл рядом с целевым.
-        let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
-        tmp_name.push(".pe-tmp");
-        let tmp = target.with_file_name(tmp_name);
+        // Режим записи tmp по статусу ответа:
+        //  • 206 Partial Content — сервер подтвердил докачку с Range;
+        //  • 200 — сервер не поддержал Range (или первая попытка) — с нуля;
+        //  • 416 — tmp уже полный (или больше оригинала) — проверяем хэш.
+        let status = res.status();
+        let mut restart = false;
+        if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            // Докачку надо начинать ровно с нашего смещения; иначе — заново.
+            let server_start: Option<u64> = res
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split_whitespace().nth(1))
+                .and_then(|v| v.split('-').next())
+                .and_then(|v| v.parse().ok());
+            if server_start != Some(resumed) {
+                last_err = format!(
+                    "Файл {}: сервер вернул неожиданный Content-Range (ожидался {} байт)",
+                    entry.path, resumed
+                );
+                let _ = fs::remove_file(&tmp);
+                resumed = 0;
+                restart = true;
+            }
+        } else if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            // Докачивать нечего: tmp уже целиком на месте. Сверяем содержимое.
+            match crate::integrity::hash_file(&tmp) {
+                Ok(h) if h.eq_ignore_ascii_case(&entry.hash) => {
+                    fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                    files_done.fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
+                }
+                _ => {
+                    last_err = format!(
+                        "Файл {}: докачка не нужна, но содержимое не совпало",
+                        entry.path
+                    );
+                    let _ = fs::remove_file(&tmp);
+                    resumed = 0;
+                    restart = true;
+                }
+            }
+        } else if status.is_success() && resumed > 0 {
+            // Сервер отдал 200 вместо 206 — Range не поддерживается, с нуля.
+            crate::telemetry::report_launcher_log(
+                "warn",
+                &format!("Файл {}: сервер не поддержал докачку, качаю с нуля", entry.path),
+            );
+            let _ = fs::remove_file(&tmp);
+            resumed = 0;
+        }
 
+        if restart {
+            if attempt < FILE_ATTEMPTS {
+                tokio::time::sleep(std::time::Duration::from_secs((attempt.min(6) * 2) as u64)).await;
+                continue;
+            }
+            return Err(last_err);
+        }
+
+        // Качаем во временный файл рядом с целевым (докачка — в append-режиме).
         let mut written: u64 = 0;
         let stream_result: Result<(), String> = async {
-            let file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
+            let file = if resumed > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&tmp)
+                    .map_err(|e| e.to_string())?
+            } else {
+                fs::File::create(&tmp).map_err(|e| e.to_string())?
+            };
             let mut writer = std::io::BufWriter::with_capacity(256 * 1024, file);
             let mut stream = res.bytes_stream();
             let mut last_tick = std::time::Instant::now();
@@ -576,6 +666,10 @@ async fn download_file(
                         "Файл {} скачался повреждённым (SHA-1 {h}, ожидался {}).",
                         entry.path, entry.hash
                     );
+                    // Хэш не сошёлся после полного скачивания: tmp, скорее
+                    // всего, содержит байты старой версии файла (мод обновился
+                    // между попытками) — докачивать его бесполезно, качаем с нуля.
+                    let _ = fs::remove_file(&tmp);
                 }
                 Err(e) => {
                     last_err = format!("Не удалось проверить файл {}: {e}", entry.path);
@@ -587,22 +681,60 @@ async fn download_file(
                     return Err("Загрузка отменена".into());
                 }
                 last_err = format!("Ошибка сети при скачивании {}: {e}", entry.path);
+                // Ошибка декодирования тела ("error decoding response body"):
+                // поток был сжат транзитом, tmp содержит распакованные байты и
+                // его смещения НЕ совпадают со смещениями сервера (Range уйдёт
+                // мимо). Докачивать такой tmp бесполезно — следующая попытка
+                // качает файл с нуля.
+                if e.to_lowercase().contains("decoding") {
+                    let _ = fs::remove_file(&tmp);
+                }
             }
         }
 
-        // Неудачная попытка: убираем временный файл и откатываем прогресс.
-        let _ = fs::remove_file(&tmp);
+        // Неудачная попытка: tmp НЕ удаляем — следующая попытка докачает его
+        // с места остановки (Range). Откатываем прогресс за эту попытку.
+        resumed = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
         bytes_done.fetch_sub(written, Ordering::Relaxed);
         crate::telemetry::report_launcher_log(
             "warn",
             &format!("{last_err} (попытка {attempt}/{FILE_ATTEMPTS})"),
         );
         if attempt < FILE_ATTEMPTS {
-            tokio::time::sleep(std::time::Duration::from_secs((attempt * 2) as u64)).await;
+            tokio::time::sleep(std::time::Duration::from_secs((attempt.min(6) * 2) as u64)).await;
         }
     }
 
     Err(last_err)
+}
+
+/// Кодирует путь файла для URL (RFC 3986 unreserved + '/'; всё остальное — %XX,
+/// например пробел → %20).
+fn encode_url_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 8);
+    for b in path.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Строка ошибки reqwest вместе с цепочкой причин: Display скрывает источник
+/// (например, под «error decoding response body» лежит настоящая причина
+/// обрыва от hyper/h2). Без неё в админ-логах только верхний слой.
+fn err_chain(e: &reqwest::Error) -> String {
+    let mut s = e.to_string();
+    let mut src = std::error::Error::source(e);
+    while let Some(c) = src {
+        s.push_str(": ");
+        s.push_str(&c.to_string());
+        src = c.source();
+    }
+    s
 }
 
 /// Основная команда: скачать/проверить сборку через GML и запустить игру.

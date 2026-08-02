@@ -122,39 +122,11 @@ pub async fn apply_launcher_update() -> Result<(), String> {
         });
 
         let client = reqwest::Client::new();
-        let res = client
-            .get(format!("{}/api/launcher/download", api_base()))
-            .header("User-Agent", launcher_user_agent())
-            .send()
-            .await
-            .map_err(|e| format!("Не удалось скачать обновление: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("Обновление недоступно: {e}"))?;
-
-        let bytes_total = res.content_length().unwrap_or(0);
         let installer = std::env::temp_dir().join("PolitEmpireLauncher-Update.exe");
-
-        let file = std::fs::File::create(&installer).map_err(|e| e.to_string())?;
-        let mut writer = std::io::BufWriter::with_capacity(256 * 1024, file);
-        let mut stream = res.bytes_stream();
-        let mut bytes_done: u64 = 0;
-        let mut last_tick = std::time::Instant::now();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| e.to_string())?;
-            std::io::Write::write_all(&mut writer, &chunk).map_err(|e| e.to_string())?;
-            bytes_done += chunk.len() as u64;
-            if last_tick.elapsed().as_millis() >= 150 {
-                set_update_progress(UpdateProgress {
-                    stage: "downloading".into(),
-                    bytes_done,
-                    bytes_total,
-                    error: None,
-                });
-                last_tick = std::time::Instant::now();
-            }
-        }
-        std::io::Write::flush(&mut writer).map_err(|e| e.to_string())?;
+        // Прошлогодний недокачанный установщик (другая версия) докачивать нельзя —
+        // качаем сессию с нуля, а обрывы внутри этой сессии докачиваются ниже.
+        let _ = std::fs::remove_file(&installer);
+        let (bytes_done, bytes_total) = download_update_installer(&client, installer.clone()).await?;
 
         set_update_progress(UpdateProgress {
             stage: "installing".into(),
@@ -188,4 +160,160 @@ pub async fn apply_launcher_update() -> Result<(), String> {
         // Завершаем лаунчер, чтобы инсталлер мог заменить файлы.
         std::process::exit(0);
     }
+}
+
+/// Скачивает установщик в файл `dest` с ретраями и докачкой.
+///
+/// У части игроков (Cloudflare WARP, ТСПУ/DPI) соединение рвётся посреди
+/// файла — "error decoding response body". Раньше скачивание стартовало с
+/// нуля каждый раз и у русских игроков на крупном установщике обрывалось
+/// у половины. Теперь частично скачанный файл НЕ удаляется: следующая
+/// попытка идёт с Range и докачивает файл с места остановки.
+/// Возвращает (скачано_байт, всего_байт).
+#[cfg(target_os = "windows")]
+async fn download_update_installer(client: &reqwest::Client, dest: std::path::PathBuf) -> Result<(u64, u64), String> {
+    const UPDATE_ATTEMPTS: u32 = 8;
+    let mut last_err = "Не удалось скачать обновление".to_string();
+    let mut total_size: u64 = 0;
+    let mut bytes_done: u64 = 0;
+    let mut last_tick = std::time::Instant::now();
+
+    for attempt in 1..=UPDATE_ATTEMPTS {
+        let resumed = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+
+        let mut req = client
+            .get(format!("{}/api/launcher/download", api_base()))
+            .header("User-Agent", launcher_user_agent())
+            // Игровой качальщик и здесь: без сжатия, иначе прозрачный gzip
+            // ломает докачку Range (смещения не сходятся).
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if resumed > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={resumed}-"));
+        }
+
+        // Заглушка /wait (анти-DDoS) — чужой HTML вместо файла: удаляем всё и
+        // повторяем позже. Всё остальное: ретраим с места остановки.
+        let res = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("Ошибка сети при скачивании обновления: {e}");
+                sleep_backoff(attempt).await;
+                continue;
+            }
+        };
+
+        // Сервер не поддержал Range (или первая попытка) — качаем с нуля.
+        let mut restart = false;
+        if res.status() == reqwest::StatusCode::OK && resumed > 0 {
+            let _ = std::fs::remove_file(&dest);
+            restart = true;
+        }
+        if restart {
+            last_err = "Сервер не поддержал докачку, перекачиваю с нуля".to_string();
+            sleep_backoff(attempt).await;
+            continue;
+        }
+
+        if !res.status().is_success() {
+            last_err = format!("Обновление недоступно: HTTP {}", res.status());
+            sleep_backoff(attempt).await;
+            continue;
+        }
+
+        total_size = res
+            .headers()
+            .get("content-range")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split('/').nth(1))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or_else(|| res.content_length().unwrap_or(0) + resumed);
+
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&dest)
+            .map_err(|e| e.to_string())?;
+        let mut writer = std::io::BufWriter::with_capacity(256 * 1024, &mut file);
+        let mut stream = res.bytes_stream();
+        let mut result: Result<(), String> = Ok(());
+
+        loop {
+            let chunk = match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next())
+                .await
+            {
+                Ok(Some(Ok(chunk))) => chunk,
+                Ok(Some(Err(e))) => {
+                    result = Err(e.to_string());
+                    break;
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    result = Err("сервер перестал передавать данные (таймаут 30с)".to_string());
+                    break;
+                }
+            };
+            if let Err(e) = std::io::Write::write_all(&mut writer, &chunk) {
+                result = Err(e.to_string());
+                break;
+            }
+            bytes_done += chunk.len() as u64;
+            if last_tick.elapsed().as_millis() >= 150 {
+                set_update_progress(UpdateProgress {
+                    stage: "downloading".into(),
+                    bytes_done,
+                    bytes_total: total_size,
+                    error: None,
+                });
+                last_tick = std::time::Instant::now();
+            }
+        }
+        if result.is_ok() {
+            if let Err(e) = std::io::Write::flush(&mut writer) {
+                result = Err(e.to_string());
+            }
+        }
+        drop(writer);
+
+        match result {
+            Ok(()) => {
+                // Проверяем размер: поток завершился, но файл может быть короче
+                // ожидаемого (сервер отдал меньше обещанного).
+                let on_disk = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                if total_size > 0 && on_disk == total_size {
+                    return Ok((on_disk, total_size));
+                }
+                if total_size > 0 {
+                    last_err = format!(
+                        "Установщик скачан не полностью ({on_disk} из {total_size} байт)"
+                    );
+                } else {
+                    // Content-Length/Content-Range отсутствуют — считаем, что готово.
+                    return Ok((on_disk, on_disk));
+                }
+            }
+            Err(e) => {
+                last_err = format!("Ошибка сети при скачивании обновления: {e}");
+                // Поток был сжат транзитом — tmp не совпадает со смещениями
+                // Range сервера; докачка бессмысленна, качаем с нуля.
+                if e.to_lowercase().contains("decoding") {
+                    let _ = std::fs::remove_file(&dest);
+                    bytes_done = 0;
+                }
+            }
+        }
+
+        bytes_done = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+        crate::telemetry::report_launcher_log(
+            "warn",
+            &format!("{last_err} (попытка {attempt}/{UPDATE_ATTEMPTS})"),
+        );
+        sleep_backoff(attempt).await;
+    }
+
+    Err(last_err)
+}
+
+#[cfg(target_os = "windows")]
+async fn sleep_backoff(attempt: u32) {
+    tokio::time::sleep(std::time::Duration::from_secs((attempt.min(6) * 2) as u64)).await;
 }
