@@ -123,19 +123,12 @@ export default function HomePage() {
             собственной сборкой модов: техника, оружие, экономика и политика. Вход — только через официальный лаунчер.
           </p>
           <div className="flex flex-col items-center gap-3 sm:flex-row">
-            <a
-              id="download"
-              href="/api/launcher/download?os=win"
+            <Link
+              href="/download"
               className="rounded-md bg-primary px-6 py-3 font-mono text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
             >
-              Скачать (Windows)
-            </a>
-            <a
-              href="/api/launcher/download?os=linux"
-              className="rounded-md bg-secondary px-6 py-3 font-mono text-sm font-semibold text-secondary-foreground transition-opacity hover:opacity-90"
-            >
-              Скачать (Linux)
-            </a>
+              Скачать лаунчер
+            </Link>
             <a
               href={MAP_URL}
               target="_blank"
