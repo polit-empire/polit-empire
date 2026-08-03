@@ -346,16 +346,14 @@ export function BackendPanel() {
                           spellCheck={false}
                           className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 font-mono text-xs outline-none transition-colors focus:border-primary"
                         />
-                        {isSecretKey(entry.key) && (
-                          <button
-                            type="button"
-                            onClick={() => setShowSecret((s) => ({ ...s, [entry.key]: !s[entry.key] }))}
-                            className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
-                            title={showSecret[entry.key] ? "Скрыть" : "Показать"}
-                          >
-                            {showSecret[entry.key] ? "🙈" : "👁️"}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowSecret((s) => ({ ...s, [entry.key]: !s[entry.key] }))}
+                          className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                          title={showSecret[entry.key] ? "Скрыть" : "Показать"}
+                        >
+                          {showSecret[entry.key] ? "🙈" : "👁️"}
+                        </button>
                       </div>
                     </td>
                     <td className="px-2 py-1.5 text-right">
@@ -408,7 +406,7 @@ export function BackendPanel() {
             ))}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Секреты показываются звёздочками (👁 показать). Изменения вступают в силу после рестарта контейнера.
+          Значения скрыты звёздочками (👁 — показать, 🙈 — скрыть). Изменения вступают в силу после рестарта контейнера.
         </p>
       </Card>
 
