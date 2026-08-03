@@ -1,14 +1,16 @@
-# Адрес HTTP API бота (bot/api/server.py)
-api-url: "http://127.0.0.1:8180"
-# Должен совпадать с API_SECRET в .env бота
-api-secret: "CHANGE_ME"
+# Адрес HTTP API (сайт politempire.ru проксирует /api/player/* на бот-сервер).
+# MC-сервер НЕ может ходить на 127.0.0.1:8180 (бот живёт на веб-сервере) —
+# поэтому здесь публичный домен сайта, а не localhost.
+api-url: "https://politempire.ru"
+# Секрет API бота (API_SECRET из .env сайта/бота). Сайт передаёт его боту при проксировании.
+api-secret: "295e530f36d61a6ed3c7c7c21160a7d747016a164c7d9efac81ec775a660e47e"
 
 # Адрес основного сайта (для синхронизации статистики Towny/KD)
-site-url: "https://polit-empire.com"
-# Должен совпадать с MOD_ADMIN_KEY в .env сайта
-mod-admin-key: "CHANGE_ME"
+site-url: "https://politempire.ru"
+# Должен совпадать с mod_admin_key в site_settings (БД)
+mod-admin-key: "4DsPSfW924RhGBB0soDybLD02qQPxyya"
 
-# Таймаут HTTP-запросов к боту, секунды
+# Таймаут HTTP-запросов к API, секунды
 http-timeout-seconds: 5
 
 2fa:
