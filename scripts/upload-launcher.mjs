@@ -101,7 +101,10 @@ console.log(`Загрузка ${path.basename(filePath)} (${(buffer.length / 102
 
 const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/launcher/upload`, {
   method: "POST",
-  headers: { Authorization: `Bearer ${token}` },
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 PolitEmpireUpload/1.0",
+  },
   body: form,
 })
 
