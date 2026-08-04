@@ -65,7 +65,7 @@ function saveAccessTokenToDb(userUuid, accessToken) {
   try {
     const escapedUuid = userUuid.replace(/'/g, "''");
     const escapedToken = accessToken.replace(/'/g, "''");
-    execSync(`sqlite3 "${DB_PATH}" "UPDATE UserStorageItem SET AccessToken='${escapedToken}' WHERE Uuid='${escapedUuid}';"`);
+    execSync(`sqlite3 "${DB_PATH}" ".timeout 5000" "UPDATE UserStorageItem SET AccessToken='${escapedToken}' WHERE Uuid='${escapedUuid}';"`);
   } catch (e) {
     console.log(`[gml-proxy] DB update error: ${e.message}`);
   }
@@ -238,7 +238,7 @@ function patchProfileArgs(args, user) {
 function getUserFromDb(userUuid) {
   try {
     const escapedUuid = userUuid.replace(/'/g, "''");
-    const value = execSync(`sqlite3 "${DB_PATH}" "SELECT Value FROM UserStorageItem WHERE Uuid='${escapedUuid}';"`).toString("utf8").trim();
+    const value = execSync(`sqlite3 "${DB_PATH}" ".timeout 5000" "SELECT Value FROM UserStorageItem WHERE Uuid='${escapedUuid}';"`).toString("utf8").trim();
     if (!value) return null;
     const userJson = JSON.parse(value);
     return {
@@ -277,7 +277,7 @@ function extractUserFromSignin(body) {
 function getUserByNameFromDb(userName) {
   try {
     const escapedName = userName.replace(/'/g, "''");
-    const value = execSync(`sqlite3 "${DB_PATH}" "SELECT Uuid, Value FROM UserStorageItem WHERE Login='${escapedName}' COLLATE NOCASE;"`).toString("utf8").trim();
+    const value = execSync(`sqlite3 "${DB_PATH}" ".timeout 5000" "SELECT Uuid, Value FROM UserStorageItem WHERE Login='${escapedName}' COLLATE NOCASE;"`).toString("utf8").trim();
     if (!value) return null;
     const parts = value.split("|");
     if (parts.length < 2) return null;
