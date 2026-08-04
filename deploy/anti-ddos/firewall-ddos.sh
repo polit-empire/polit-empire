@@ -32,6 +32,12 @@ iptables -F INPUT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -s 127.0.0.1 -j ACCEPT
 iptables -A INPUT -p tcp -m multiport --dports 80,443 -s "$FRONT_IP" -j ACCEPT
+# Minecraft-сервера (Velocity 185.9.145.78, 79.137.71.8): authlib и плагин
+# должны ходить НАПРЯМУЮ на нас (в обход Cloudflare — CF рейтлимитит
+# высокообъёмный IP сервера, из-за чего у всех игроков пинг 5с).
+# На MC-сервере в /etc/hosts:  144.31.0.116 politempire.ru
+iptables -A INPUT -p tcp -m multiport --dports 80,443 -s 185.9.145.78 -j ACCEPT
+iptables -A INPUT -p tcp -m multiport --dports 80,443 -s 79.137.71.8 -j ACCEPT
 # Docker-сеть: контейнеры (GmlBackend, bots) ходят на сайт напрямую по IP
 # (в /etc/hosts контейнера politempire.org → 144.31.0.116) для /api/gml/auth.
 iptables -A INPUT -p tcp -m multiport --dports 80,443 -s 172.16.0.0/12 -j ACCEPT
