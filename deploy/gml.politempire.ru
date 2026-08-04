@@ -1,0 +1,162 @@
+# gml.politempire.ru — панель управления GML и её API.
+# На этом домене POST-запросы нужны (логин, загрузка файлов, управление) —
+# поэтому limit_except GET HEAD для корня НЕ ставим. Только rate-limit и
+# bad-UA/method/URI блок.
+#
+# Установка:
+#   sudo cp deploy/nginx-gml-politempire-ru.conf \
+#      /etc/nginx/sites-available/gml.politempire.ru
+#   sudo ln -sf /etc/nginx/sites-available/gml.politempire.ru \
+#      /etc/nginx/sites-enabled/gml.politempire.ru
+
+# ---- HTTP → HTTPS -----------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name gml.politempire.ru gml.politempire.org;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---- HTTPS: панель + API ----------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name gml.politempire.ru gml.politempire.org;
+
+    ssl_certificate     /etc/letsencrypt/live/gml.politempire.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gml.politempire.ru/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    client_max_body_size 2G;
+
+    # === Anti-DDoS: лимит соединений, блок bad UA/method/URI, общий rate-limit.
+    # Внимание: на этом домене POST НУЖЕН (логин в панель, загрузка файлов).
+    # Поэтому limit_except GET HEAD тут НЕТ — только общий rate-limit и фильтры.
+    include snippets/antiddos-server.conf;
+
+    # Не пишем 429/400/444 в access.log — экономит диск при атаке.
+    access_log /var/log/nginx/access.log combined if=$loggable;
+
+    # ---- Регистрация в панели GML ОТКЛЮЧЕНА --------------------------------
+    # Открытый /api/v1/users/signup позволял КОМУ УГОДНО создать аккаунт панели
+    # управления GML и получить доступ к банам, выдаче, профилям и т.п.
+    # Администраторы уже созданы, поэтому регистрацию закрываем на уровне
+    # nginx (надёжнее фронтенда — обходится и прямой запрос к API).
+    # Вход (/api/v1/users/signin) и обновление токена (/users/refresh)
+    # остаются рабочими. Лаунчер игроков использует только /api/v1/integrations/*
+    # и /api/v1/file/* — их это правило не затрагивает.
+    location = /api/v1/users/signup {
+        return 403;
+    }
+
+    # ---- Раздача файлов сборки лаунчеру -------------------------------------
+    # Лаунчер качает сотни мелких файлов подряд — на antiddos_api (2r/s) это
+    # упирается в лимит на первых же секундах и скачивание встаёт. Файлы
+    # адресуются по sha1-хэшу, читаются с диска и не трогают БД, поэтому им
+    # отдельная зона с высоким лимитом.
+    # Напрямую на GML API (5003), минуя gml-proxy.js (5004).
+    location /api/v1/file/ {
+        limit_req zone=antiddos_authlib burst=1500 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        proxy_pass http://127.0.0.1:5003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+
+    # ---- Файлы сборки по пути: nginx static + Range --------------------------
+    # Докачка оборванных файлов (см. комментарий в politempire.ru).
+    location /files/ {
+        alias /opt/polit-empire/data/GmlBackend/;
+        limit_req zone=antiddos_authlib burst=1500 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        gzip off;
+        sendfile on;
+        tcp_nopush on;
+        send_timeout 300s;
+        add_header Accept-Ranges bytes always;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    # ---- profiles/info → profiles/details (rewrite) --------------------------
+    # Лаунчер отправляет POST на /api/v1/profiles/info, но бэкенд и gml-proxy.js
+    # ожидают /api/v1/profiles/details. Без rewrite запрос уходит на бэкенд
+    # как есть → 400/403 → лаунчер зацикливается ("бесконечный манифест").
+    location /api/v1/profiles/info {
+        limit_req zone=antiddos_authlib burst=500 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        rewrite ^ /api/v1/profiles/details break;
+        proxy_pass http://127.0.0.1:5004;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # ---- API GML (/api/...) — через прокси (5004) для обработки
+    # hasJoined, join, profiles/details (JWT upgrade) и проброса на бэкенд
+    location /api/ {
+        limit_req zone=antiddos_api burst=500 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        limit_req zone=antiddos_backend_gml burst=100 nodelay;
+        proxy_pass http://127.0.0.1:5004;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ---- Корень GML (панель) — только для админов --------------------------
+    # Бот-флуд GET / без параметров через Cloudflare режем per-IP лимитом
+    # (2r/s): админы в geo $is_trusted_ip — для них лимит не действует.
+    location = / {
+        limit_except GET HEAD OPTIONS {
+            deny all;
+        }
+        limit_req zone=antiddos_auth burst=5 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        proxy_pass http://127.0.0.1:5003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ---- Сама панель (Gml Frontend) — обычно GET ----------------------------
+    location / {
+        limit_req zone=antiddos_general burst=150 nodelay;
+        limit_req zone=antiddos_global_gml burst=300 nodelay;
+        proxy_pass http://127.0.0.1:5003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}

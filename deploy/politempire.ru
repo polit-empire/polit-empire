@@ -1,0 +1,198 @@
+# politempire.ru — прямой домен (БЕЗ Cloudflare), указывает на 82.117.87.152.
+#
+# Решает две проблемы:
+# 1. «Недействительная сессия» у игроков с российских IP: authlib-запросы игры
+#    (joinserver/hasJoined) идут сюда, минуя Cloudflare, который нестабильно
+#    доступен из РФ. Лаунчер собран с AUTHLIB_API_BASE = https://politempire.ru.
+# 2. DDoS: этот домен — самый уязвимый, потому что на него можно идти напрямую,
+#    минуя Cloudflare-фильтрацию. Поэтому тут включена усиленная защита через
+#    snippets/antiddos-server.conf + per-location лимиты + fail2ban.
+#
+# Установка: положить в /etc/nginx/sites-available/politempire.ru
+# и создать симлинк в sites-enabled (или заменить существующий блок для .ru).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name politempire.ru www.politempire.ru;
+
+    # Для выпуска/продления сертификата Let's Encrypt (HTTP-01)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name politempire.ru www.politempire.ru;
+
+    ssl_certificate     /etc/letsencrypt/live/politempire.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/politempire.ru/privkey.pem;
+
+    client_max_body_size 2G;   # загрузка модов/сборок в панель
+
+    # === Anti-DDoS: лимит соединений, блок bad UA/method/URI, общий rate-limit.
+    include snippets/antiddos-server.conf;
+
+    # Не пишем 429/400/444 в access.log — экономит десятки ГБ при атаке.
+    access_log /var/log/nginx/access.log combined if=$loggable;
+
+    # ---- API (GmlBackend + proxy) -------------------------------------------
+    # Файлы сборки — напрямую на GML API (YARP proxy, порт 5003), минуя
+    # gml-proxy.js (5004). Промежуточный прокси буферизует ВЕСЬ ответ в памяти
+    # и удаляет content-encoding без распаковки — это ломает скачивание больших
+    # модов (error decoding response body) и тормозит загрузку.
+    location /api/v1/file/ {
+        limit_req zone=antiddos_authlib burst=1500 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        proxy_pass http://127.0.0.1:5003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+
+    # ---- Файлы сборки по пути: nginx static + Range --------------------------
+    # Лаунчер качает файлы по {host}/files/<percent-encoded путь> прямо с диска
+    # nginx: нативный Range (206) позволяет ДОКАЧИВАТЬ оборванные файлы. У части
+    # игроков (Cloudflare WARP и т.п.) соединение рвётся в середине файла —
+    # "error decoding response body", а Kestrel (5003) Range игнорирует и каждый
+    # ретрай качал файл с нуля. Статика nginx решает это полностью.
+    location /files/ {
+        alias /opt/polit-empire/data/GmlBackend/;
+        limit_req zone=antiddos_authlib burst=1500 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        gzip off;
+        sendfile on;
+        tcp_nopush on;
+        # Глобальный send_timeout 10s рвёт медленных/зависающих клиентов
+        # (WARP-туннели) в середине файла. Докачка это переживает, но лучше
+        # не обрывать вовсе: 300s — запас для долгих передач.
+        send_timeout 300s;
+        add_header Accept-Ranges bytes always;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+    }
+
+    location /api/v1/profiles/info {
+        limit_req zone=antiddos_authlib burst=500 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        rewrite ^ /api/v1/profiles/details break;
+        proxy_pass http://127.0.0.1:5004;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    location /api/v1/ {
+        limit_req zone=antiddos_authlib burst=500 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        limit_req zone=antiddos_backend_ru burst=100 nodelay;
+        proxy_pass http://127.0.0.1:5004;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # ---- API плагина Minecraft-сервера (PoliteShopMod) ----------------------
+    # Плагин на сервере делает много параллельных запросов от имени всех
+    # игроков: /api/mod/balance, /api/mod/admin/dc, /api/mod/claim и т.п.
+    # Поэтому отдельная зона antiddos_mod с высоким лимитом 20r/s + burst 80.
+    # IP самого Minecraft-сервера в whitelist (geo $is_trusted_ip в
+    # conf.d/00-antiddos.conf) — для него лимита нет вообще.
+    location /api/mod/ {
+        limit_req zone=antiddos_mod burst=300 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ---- API сайта (/api/auth, /api/telegram, /api/launcher) ----------------
+    location /api/ {
+        limit_req zone=antiddos_api burst=500 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ---- Корень сайта — только GET/HEAD (блокируем POST / — основная атака) -
+    # `limit_except GET HEAD OPTIONS` отдаёт 403 на любые другие методы.
+    # Легитимный сайт никогда не получает POST на корень.
+    location = / {
+        limit_except GET HEAD OPTIONS {
+            deny all;
+        }
+        limit_req zone=antiddos_general burst=150 nodelay;
+        limit_req zone=antiddos_auth burst=10 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ---- Основной сайт (Next.js, порт APP_PORT=3001) ------------------------
+    location / {
+        limit_req zone=antiddos_general burst=150 nodelay;
+        limit_req zone=antiddos_auth burst=10 nodelay;
+        limit_req zone=antiddos_global_ru burst=300 nodelay;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+
+# ============================================================================
+# Команды на сервере (по SSH), выполнить один раз:
+#
+# 1. Расширить сертификат, добавив politempire.ru (и www, если есть A-запись):
+#    sudo certbot --nginx --expand \
+#      -d politempire.org -d gml.politempire.org \
+#      -d politempire.ru
+#
+# 2. Проверить и перезагрузить nginx:
+#    sudo nginx -t && sudo systemctl reload nginx
+#
+# 3. Проверка authlib-прокси (должен вернуть JSON метаданных, а не сайт):
+#    curl -s https://politempire.ru/api/v1/integrations/authlib/minecraft | head
+# ============================================================================
