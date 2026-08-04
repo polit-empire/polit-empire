@@ -32,6 +32,9 @@ iptables -F INPUT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -s 127.0.0.1 -j ACCEPT
 iptables -A INPUT -p tcp -m multiport --dports 80,443 -s "$FRONT_IP" -j ACCEPT
+# Docker-сеть: контейнеры (GmlBackend, bots) ходят на сайт напрямую по IP
+# (в /etc/hosts контейнера politempire.org → 144.31.0.116) для /api/gml/auth.
+iptables -A INPUT -p tcp -m multiport --dports 80,443 -s 172.16.0.0/12 -j ACCEPT
 for r in $CF_V4; do
     iptables -A INPUT -p tcp -m multiport --dports 80,443 -s "$r" -j ACCEPT
 done
@@ -44,6 +47,8 @@ done
 ip6tables -F INPUT
 ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 ip6tables -A INPUT -s ::1 -j ACCEPT
+# Docker-сеть IPv6 (если используется)
+ip6tables -A INPUT -p tcp -m multiport --dports 80,443 -s fd00::/8 -j ACCEPT
 for r in $CF_V6; do
     ip6tables -A INPUT -p tcp -m multiport --dports 80,443 -s "$r" -j ACCEPT
 done
