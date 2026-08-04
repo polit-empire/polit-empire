@@ -103,14 +103,18 @@ const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/launcher/upload`, {
   method: "POST",
   headers: {
     Authorization: `Bearer ${token}`,
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 PolitEmpireUpload/1.0",
+    "User-Agent": "PolitEmpireLauncher/1.0",
   },
   body: form,
 })
 
-const body = await res.json().catch(() => ({}))
+const text = await res.text().catch(() => "")
+let body = {}
+try { body = JSON.parse(text) } catch { /* ignore */ }
+
 if (!res.ok) {
   console.error(`Ошибка ${res.status}:`, body.error || body)
+  console.error("Сырой ответ:", text)
   process.exit(1)
 }
 
